@@ -2,6 +2,11 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.3.2
+- Fixed: the controller not working in the Xbox stream (menus worked). Reading a controller without a Guide button (like Steam's virtual pad) crashed the input loop, which then stopped for good
+- The input loop now survives any error and keeps sending your controls
+- The stream combines input from every controller you actually use, so dead or phantom devices on the Steam Deck can't block your input
+
 ## 0.3.1
 - Fixed: controls sometimes not working after connecting. The stream now uses the controller you're actually pressing (the Steam Deck lists more than one) and switches automatically if needed
 - Fixed: closing the in-game menu could leave the controller paused if a device reported a stuck button

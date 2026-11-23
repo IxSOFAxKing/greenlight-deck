@@ -96,24 +96,38 @@ export default class InputChannel extends Channel {
 
     }
 
+    private _loopErrorCount = 0
+
     gamepadStateLoop(){
+        // Always re-arm first: one exception must never stop controller input for the rest of the stream.
+        setTimeout(this.gamepadStateLoop.bind(this), 16)
+
         const gamepadHandlers = this.getPlayer()._channels.control.getGamepadHandlers()
-        // console.log('[InputChannel] gamepadStateLoop() called', gamepadHandlers)
         const gamepadFrames:Array<GamepadFrame> = []
         for(const gamepad in gamepadHandlers){
             if(gamepadHandlers[gamepad] instanceof Gamepad){
-                const frame = (gamepadHandlers[gamepad] as Gamepad).getGamepadState()
-                if(frame !== undefined){
-                    gamepadFrames.push(frame)
+                try {
+                    const frame = (gamepadHandlers[gamepad] as Gamepad).getGamepadState()
+                    if(frame !== undefined){
+                        gamepadFrames.push(frame)
+                    }
+                } catch(error){
+                    // Log the first few, then every 500th, so the log stays readable.
+                    this._loopErrorCount++
+                    if(this._loopErrorCount <= 3 || this._loopErrorCount % 500 === 0){
+                        console.error('[InputChannel] Reading gamepad failed (' + this._loopErrorCount + 'x):', error)
+                    }
                 }
             }
         }
 
         if(gamepadFrames.length > 0){
-            this.queueGamepadFrames(gamepadFrames)
+            try {
+                this.queueGamepadFrames(gamepadFrames)
+            } catch(error){
+                console.error('[InputChannel] Sending gamepad frame failed:', error)
+            }
         }
-
-        setTimeout(this.gamepadStateLoop.bind(this), 16)
     }
 
     queueMetadataFrame(data:MetadataFrame){

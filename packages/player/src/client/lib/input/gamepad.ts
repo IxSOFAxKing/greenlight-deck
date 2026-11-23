@@ -242,20 +242,53 @@ export default class Gamepad {
         return claimed
     }
 
+    /** Per-pad snapshot of what was pressed/moved last poll, and when each pad last changed. */
+    private _padSignature = new Map<number, string>()
+    private _padLastActive = new Map<number, number>()
+
+    private padSignature(pad: globalThis.Gamepad): string {
+        let sig = ''
+        for(const b of pad.buttons){ sig += (b && (b.pressed || b.value > 0.5)) ? '1' : '0' }
+        sig += '|'
+        for(const a of pad.axes){ sig += Math.abs(a ?? 0) > 0.35 ? (a > 0 ? '+' : '-') : '0' }
+        return sig
+    }
+
     /**
-     * Pick the physical gamepad the player is actually using. Some systems
-     * (e.g. Steam Deck) expose several pads, some of which never report input
-     * (a device Steam Input has grabbed). Prefer the most recently active,
-     * standard-mapped pad instead of whichever happens to be listed last.
+     * Note which pads are actually being used. A pad counts as "live" once its
+     * buttons or sticks change. Devices that never change (a controller Steam
+     * Input has taken over, a phantom device, or one with a stuck button) stay
+     * ignored. The most recently used pad gets rumble.
      */
+    private trackActivity(){
+        const now = performance.now()
+        const claimed = this.claimedIndexes()
+        for(const pad of navigator.getGamepads()){
+            if(!pad || !pad.connected || claimed.has(pad.index)) continue
+            const sig = this.padSignature(pad)
+            const prev = this._padSignature.get(pad.index)
+            this._padSignature.set(pad.index, sig)
+            if(prev !== undefined && prev !== sig){
+                this._padLastActive.set(pad.index, now)
+                if(pad.index !== this._physicalGamepadId){
+                    const currentLast = this._padLastActive.get(this._physicalGamepadId) ?? 0
+                    if(now - currentLast > 200){
+                        console.log('[Gamepad] Input from gamepad', pad.index, '"' + pad.id + '"', '(was', this._physicalGamepadId + ')')
+                        this._physicalGamepadId = pad.index
+                    }
+                }
+            }
+        }
+    }
+
+    /** Before any input: prefer a standard-mapped pad with the most buttons. */
     private pickPhysicalGamepad(): number {
         const claimed = this.claimedIndexes()
         let best = -1
         let bestScore = -Infinity
         for(const pad of navigator.getGamepads()){
             if(!pad || !pad.connected || claimed.has(pad.index)) continue
-            const active = pad.buttons.some(b => b.pressed || b.value > 0.1) || pad.axes.some(a => Math.abs(a) > 0.3)
-            const score = (active ? 1e15 : 0) + (pad.mapping === 'standard' ? 1e14 : 0) + (pad.timestamp || 0)
+            const score = (pad.mapping === 'standard' ? 1000 : 0) + pad.buttons.length
             if(score > bestScore){
                 bestScore = score
                 best = pad.index
@@ -268,28 +301,8 @@ export default class Gamepad {
         const picked = this.pickPhysicalGamepad()
         if(picked >= 0 && picked !== this._physicalGamepadId){
             this._physicalGamepadId = picked
-            const pad = navigator.getGamepads()[picked]
-            console.log('[Gamepad] Using gamepad', picked, pad?.id, `(${navigator.getGamepads().filter(p => p).length} connected)`)
-        }
-    }
-
-    /** Switch to another pad if that's the one being used (checked a few times a second). */
-    private _lastSwitchCheck = 0
-    private maybeSwitchGamepad(){
-        const now = performance.now()
-        if(now - this._lastSwitchCheck < 250) return
-        this._lastSwitchCheck = now
-        const current = this.getGamepad(this._physicalGamepadId)
-        const claimed = this.claimedIndexes()
-        for(const pad of navigator.getGamepads()){
-            if(!pad || !pad.connected || pad.index === this._physicalGamepadId || claimed.has(pad.index)) continue
-            const active = pad.buttons.some(b => b.pressed) || pad.axes.some(a => Math.abs(a) > 0.5)
-            const newer = !current || (pad.timestamp || 0) > (current.timestamp || 0)
-            if(active && newer){
-                console.log('[Gamepad] Input is coming from gamepad', pad.index, pad.id, '- switching from', this._physicalGamepadId)
-                this._physicalGamepadId = pad.index
-                return
-            }
+            const all = navigator.getGamepads().filter(p => p).map(p => '#' + p!.index + ' "' + p!.id + '" ' + (p!.mapping || 'no-mapping') + ' ' + p!.buttons.length + 'btn')
+            console.log('[Gamepad] Gamepads:', all.join(', '), '→ starting with #' + picked)
         }
     }
 
@@ -315,25 +328,38 @@ export default class Gamepad {
     getGamepadState(){
         if(this._options.enable_gamepad !== false){
             if(this._physicalGamepadId < 0) this.detectActiveGamepad()
-            else this.maybeSwitchGamepad()
+            this.trackActivity()
         }
-        const gamepad = this.getGamepad(this._physicalGamepadId)
-        if((this._physicalGamepadId < 0 || gamepad === undefined || this._isFocused === false) && (this.hasOverrideButtons() === false)){
+
+        if(this._isFocused === false && this.hasOverrideButtons() === false){
+            return undefined
+        }
+
+        // Pads that have actually been used; until one is, read the initial pick.
+        const claimed = this.claimedIndexes()
+        let pads = navigator.getGamepads().filter((p): p is globalThis.Gamepad =>
+            !!p && p.connected && !claimed.has(p.index) && this._padLastActive.has(p.index))
+        if(pads.length === 0){
+            const initial = this.getGamepad(this._physicalGamepadId)
+            pads = initial ? [initial] : []
+        }
+
+        if(pads.length === 0 && this.hasOverrideButtons() === false){
             return undefined
         }
 
         const frame = this.getDefaultFamepadFrame()
         frame.GamepadIndex = this._index
 
-        // Set buttons
-        if(gamepad !== undefined){
+        // Combine every live pad: strongest button press and largest stick deflection win.
+        for(const gamepad of pads){
             for(const button in this._options.gamepad_mapping){
-                frame[button] = gamepad.buttons[this._options.gamepad_mapping[button]].value
+                const value = gamepad.buttons[Number(this._options.gamepad_mapping[button])]?.value ?? 0
+                if(value > (frame[button] ?? 0)) frame[button] = value
             }
-
-            // Set axis
             for(const axis in this._options.gamepad_axes_mapping){
-                frame[axis] = this.normaliseAxis(gamepad.axes[this._options.gamepad_axes_mapping[axis]])
+                const value = this.normaliseAxis(gamepad.axes[Number(this._options.gamepad_axes_mapping[axis])] ?? 0)
+                if(Math.abs(value) > Math.abs(frame[axis] ?? 0)) frame[axis] = value
             }
         }
 
