@@ -105,7 +105,7 @@ export class Controller {
     if (!action) return
     // Let text inputs keep their own editing keys.
     const t = e.target as HTMLElement | null
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && ['left', 'right', 'back', 'x', 'y', 'lb', 'rb', 'menu'].includes(action) && e.key.length === 1) return
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return
     e.preventDefault()
     this.emit(action)
   }

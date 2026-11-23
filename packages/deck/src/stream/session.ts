@@ -4,8 +4,8 @@
 
 import xCloudPlayer from '@gl/player'
 import Gamepad from '@gl/gamepad'
-import { call } from '../api'
-import type { RendererKind, Resolution, StreamKind } from '../../shared/api'
+import { call, log } from '../api'
+import type { CodecProfile, RendererKind, Resolution, StreamKind } from '../../shared/api'
 
 export type StreamPhase =
   | 'requesting'    // asking Xbox services for a session
@@ -20,6 +20,8 @@ export interface StreamUpdate {
   phase: StreamPhase
   message?: string
   waitSeconds?: number
+  /** True when a stream that was playing dropped (worth reconnecting). */
+  recoverable?: boolean
 }
 
 export interface StreamStats {
@@ -38,6 +40,8 @@ export interface StreamOptions {
   resolution: Resolution
   renderer: RendererKind
   vibration: boolean
+  maxBitrateMbps: number
+  codecProfile: CodecProfile
   elementId: string
   onUpdate: (u: StreamUpdate) => void
 }
@@ -53,6 +57,9 @@ export class StreamSession {
   private keepalive: ReturnType<typeof setInterval> | undefined
   private stopped = false
   private phase: StreamPhase = 'requesting'
+  private watchdog: ReturnType<typeof setInterval> | undefined
+  private dropTimer: ReturnType<typeof setTimeout> | undefined
+  private everPlayed = false
 
   constructor(opts: StreamOptions) {
     this.opts = opts
@@ -60,7 +67,9 @@ export class StreamSession {
 
   private update(u: StreamUpdate) {
     if (this.stopped && u.phase !== 'ended') return
+    if (u.phase !== this.phase || u.message) log(u.phase === 'error' ? 'warn' : 'info', 'stream', `${this.opts.kind}:${this.opts.id} → ${u.phase}${u.message ? ` (${u.message})` : ''}`)
     this.phase = u.phase
+    if (u.phase === 'playing') this.everPlayed = true
     this.opts.onUpdate(u)
   }
 
@@ -69,6 +78,7 @@ export class StreamSession {
   async start() {
     try {
       this.update({ phase: 'requesting', message: this.opts.kind === 'home' ? 'Contacting your Xbox…' : 'Requesting a cloud server…' })
+      log('info', 'stream', `start ${this.opts.kind} ${this.opts.id} ${this.opts.resolution}p renderer=${this.opts.renderer} bitrate=${this.opts.maxBitrateMbps || 'auto'} profile=${this.opts.codecProfile}`)
       const res = await call('streamStart', this.opts.kind, this.opts.id, this.opts.resolution)
       this.handle = res.handle
       if (this.stopped) { await call('streamStop', res.handle); return }
@@ -113,15 +123,30 @@ export class StreamSession {
 
   private async connect() {
     this.update({ phase: 'connecting', message: 'Connecting video…' })
-    const player = new xCloudPlayer(this.opts.elementId, { renderer: this.opts.renderer })
+    const player = new xCloudPlayer(this.opts.elementId, {
+      renderer: this.opts.renderer,
+      maxVideoBitrate: Math.round(this.opts.maxBitrateMbps * 1000),
+      codecProfile: this.opts.codecProfile,
+    })
     this.player = player
     player.init()
 
     player._peerConnection.addEventListener('connectionstatechange', () => {
       const s = player._peerConnection.connectionState
-      if (s === 'connected') this.update({ phase: 'playing' })
-      if ((s === 'failed' || s === 'disconnected') && this.phase !== 'ended') {
-        this.fail(new Error(s === 'failed' ? 'The connection to the Xbox failed.' : 'Lost connection to the Xbox.'))
+      log('info', 'stream', `WebRTC connection state: ${s}`)
+      if (s === 'connected') {
+        clearTimeout(this.dropTimer)
+        this.dropTimer = undefined
+        this.update({ phase: 'playing' })
+        this.startWatchdog()
+      }
+      if (s === 'failed') this.lost('The connection to the Xbox failed.')
+      // "disconnected" often recovers on its own within a few seconds (Wi-Fi roam, brief interference).
+      if (s === 'disconnected' && !this.dropTimer) {
+        this.dropTimer = setTimeout(() => {
+          this.dropTimer = undefined
+          if (player._peerConnection.connectionState !== 'connected') this.lost('Lost connection to the Xbox.')
+        }, 4000)
       }
     })
 
@@ -148,6 +173,32 @@ export class StreamSession {
     this.gamepad.attach(player)
   }
 
+  /** Treat the video freezing for a while as a dropped connection, even if WebRTC hasn't noticed. */
+  private startWatchdog() {
+    clearInterval(this.watchdog)
+    let lastDecoded = -1
+    let stalledFor = 0
+    this.watchdog = setInterval(async () => {
+      const pc = this.player?._peerConnection
+      if (!pc || this.phase !== 'playing') return
+      try {
+        const report = await pc.getStats()
+        let decoded = -1
+        report.forEach((r: any) => { if (r.type === 'inbound-rtp' && r.kind === 'video') decoded = r.framesDecoded ?? -1 })
+        if (decoded >= 0 && decoded === lastDecoded) stalledFor += 1
+        else stalledFor = 0
+        lastDecoded = decoded
+        if (stalledFor === 3) log('warn', 'stream', 'No new video frames for 3s')
+        if (stalledFor >= 8) this.lost('The video stopped arriving from the Xbox.')
+      } catch { /* stats unavailable */ }
+    }, 1000)
+  }
+
+  private lost(message: string) {
+    if (this.stopped || this.phase === 'error') return
+    this.fail(new Error(message), this.everPlayed)
+  }
+
   /** Stop sending controller input to the Xbox (while the overlay is open). */
   setInputPaused(paused: boolean) {
     if (this.gamepad) (this.gamepad as any)._isFocused = !paused
@@ -170,14 +221,19 @@ export class StreamSession {
     }
   }
 
-  private fail(err: unknown) {
+  private fail(err: unknown, recoverable = false) {
     if (this.stopped) return
     const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Something went wrong.'
-    this.update({ phase: 'error', message: friendlyError(message) })
+    log('error', 'stream', 'Stream failed:', err)
     this.teardown()
+    this.update({ phase: 'error', message: friendlyError(message), recoverable })
   }
 
   private teardown() {
+    clearInterval(this.watchdog)
+    clearTimeout(this.dropTimer)
+    this.watchdog = undefined
+    this.dropTimer = undefined
     clearInterval(this.keepalive)
     this.keepalive = undefined
     try { this.gamepad?.detach() } catch { /* noop */ }

@@ -4,6 +4,8 @@
 declare module '@gl/player' {
   export interface xCloudPlayerOptions {
     renderer?: 'video' | 'webgpu' | 'auto'
+    maxVideoBitrate?: number
+    codecProfile?: 'auto' | 'high' | 'medium' | 'low'
   }
 
   export interface PlayerStats {
@@ -12,6 +14,7 @@ declare module '@gl/player' {
     _videoWidth: number
     _videoHeight: number
     _videoFps: number
+    _framesDecoded?: number
     _rtt: number
     _remoteIsLocal: boolean
     _remoteIsIpv6: boolean

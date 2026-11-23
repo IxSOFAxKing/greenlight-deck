@@ -30,10 +30,11 @@ export default class Sdp {
     setLocalSDP(sdp:RTCSessionDescriptionInit) {
         console.log('[SDP] setLocalSDP() Setting local SDP:', sdp)
 
-        // if(this._player._config.video_bitrate > 0){
-        //     console.log('[SDP] Set max video bitrate to:', this._player._config.video_bitrate, 'kbps')
-        //     sdp.sdp = this._setBitrate(sdp.sdp, 'video', this._player._config.video_bitrate)
-        // }
+        const maxVideoBitrate = this._player.options?.maxVideoBitrate ?? 0
+        if(maxVideoBitrate > 0 && sdp.sdp){
+            console.log('[SDP] Set max video bitrate to:', maxVideoBitrate, 'kbps')
+            sdp.sdp = this._setBitrate(sdp.sdp, 'video', maxVideoBitrate)
+        }
 
         // if(this._player._config.audio_bitrate > 0){
         //     console.log('[SDP] Set max audio bitrate to:', this._player._config.audio_bitrate, 'kbps')
@@ -55,7 +56,7 @@ export default class Sdp {
         return sdp
     }
 
-    getDefaultCodecPreferences() {
+    getDefaultCodecPreferences(profile: 'auto' | 'high' | 'medium' | 'low' = 'auto') {
         const capabilities = RTCRtpReceiver.getCapabilities('video')?.codecs
         if(capabilities === undefined) {return []}
 
@@ -89,12 +90,14 @@ export default class Sdp {
             // }
         }
 
-        const codecOrder = [...t1, ...t2, ...t3, ...t4]
+        // t1 = high (4d), t2 = medium (42e), t3 = low (420); fallbacks in t4.
+        const tiers = profile === 'low' ? [t3, t2, t1] : profile === 'medium' ? [t2, t1, t3] : [t1, t2, t3]
+        const codecOrder = [...tiers.flat(), ...t4]
 
         return codecOrder
     }
 
-    _setBitrate(sdp, media, bitrate) {
+    _setBitrate(sdp: string, media: string, bitrate: number) {
         const lines = sdp.split('\n')
         let line = -1
         for(let i=0; i < lines.length; i++) {

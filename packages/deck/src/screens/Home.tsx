@@ -9,6 +9,7 @@ import { focusFirst } from '../input/spatial'
 import { sound } from '../input/sound'
 import { useToast, useUpdate } from '../state'
 import { SettingsTab } from './Settings'
+import { CloudTab, type CloudControls } from './Cloud'
 
 type Tab = 'consoles' | 'cloud' | 'settings'
 
@@ -24,6 +25,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
   const tabs: Tab[] = auth.hasCloud ? ['consoles', 'cloud', 'settings'] : ['consoles', 'settings']
   const [tab, setTab] = useState<Tab>('consoles')
   const toast = useToast()
+  const cloudControls = useRef<CloudControls | undefined>(undefined)
   const update = useUpdate()
   const updateBadge = update.state === 'available' || update.state === 'downloaded'
 
@@ -68,6 +70,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
       if (tab === 'cloud') cloud.reload()
       return true
     }
+    if (action === 'x' && tab === 'cloud') { cloudControls.current?.openSearch(); return true }
     if (action === 'x' && tab === 'consoles') {
       const c = focusedConsole()
       if (c) wake(c)
@@ -88,7 +91,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
   const hints: Hint[] = tab === 'consoles'
     ? [{ glyph: 'A', label: 'Stream' }, { glyph: 'X', label: 'Wake' }, { glyph: 'Y', label: 'Refresh', onClick: consoles.reload }]
     : tab === 'cloud'
-      ? [{ glyph: 'A', label: 'Play' }, { glyph: 'Y', label: 'Refresh', onClick: cloud.reload }]
+      ? [{ glyph: 'A', label: 'Details' }, { glyph: 'X', label: 'Search', onClick: () => cloudControls.current?.openSearch() }, { glyph: 'Y', label: 'Refresh', onClick: cloud.reload }]
       : [{ glyph: 'A', label: 'Change' }]
 
   return (
@@ -116,7 +119,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
 
       <main className="content" ref={contentRef}>
         {tab === 'consoles' && <ConsolesTab state={consoles} onStream={streamConsole} onWake={wake} />}
-        {tab === 'cloud' && <CloudTab state={cloud} onPlay={t => onStream({ kind: 'cloud', id: t.titleId, name: t.name })} />}
+        {tab === 'cloud' && <CloudTab state={cloud} controls={cloudControls} onPlay={t => onStream({ kind: 'cloud', id: t.titleId, name: t.name })} />}
         {tab === 'settings' && <SettingsTab />}
       </main>
 
@@ -167,38 +170,6 @@ function ConsolesTab({ state, onStream, onWake }: {
         )
       })}
     </div>
-  )
-}
-
-// ---------- Cloud ----------
-
-function CloudTab({ state, onPlay }: { state: Loader<CloudTitle[]>; onPlay: (t: CloudTitle) => void }) {
-  if (state.loading && !state.data) return <div className="center fill"><Spinner /></div>
-  if (state.error) return <ErrorPanel message={state.error} onRetry={state.reload} />
-  const list = state.data ?? []
-  if (list.length === 0) {
-    return <div className="empty"><h2>No cloud games</h2><p>Cloud gaming needs a Game Pass plan that includes it.</p></div>
-  }
-  const recent = list.filter(t => t.recent)
-  const rest = list.filter(t => !t.recent)
-  return (
-    <div className="cloud">
-      {recent.length > 0 && <>
-        <h3 className="section-title">Jump back in</h3>
-        <div className="tile-row" data-nav-group>{recent.map((t, i) => <TitleTile key={t.titleId} t={t} first={i === 0} onPlay={onPlay} />)}</div>
-      </>}
-      <h3 className="section-title">All cloud games</h3>
-      <div className="tile-grid">{rest.map((t, i) => <TitleTile key={t.titleId} t={t} first={recent.length === 0 && i === 0} onPlay={onPlay} />)}</div>
-    </div>
-  )
-}
-
-function TitleTile({ t, first, onPlay }: { t: CloudTitle; first?: boolean; onPlay: (t: CloudTitle) => void }) {
-  return (
-    <button className="tile" data-nav data-autofocus={first || undefined} onClick={() => onPlay(t)} title={t.name}>
-      {t.imageUrl ? <img src={t.imageUrl} alt="" loading="lazy" /> : <div className="tile-fallback">{t.name.slice(0, 2)}</div>}
-      <span className="tile-name">{t.name}</span>
-    </button>
   )
 }
 

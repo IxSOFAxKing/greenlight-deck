@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Backend } from './backend'
 import { Store } from './store'
 import { Updater } from './updater'
+import { logger } from './logger'
 import type { DeckApiMethod } from '../shared/api'
 
 const args = process.argv.slice(1)
@@ -99,7 +100,19 @@ function createWindow() {
   }
 }
 
+function logReport(): string {
+  const s = backend.getSettings()
+  const header = [
+    `Greenlight Deck ${app.getVersion()} · Electron ${process.versions.electron} · Chrome ${process.versions.chrome}`,
+    `Platform: ${process.platform} ${process.arch}${isSteamDeck() ? ' (Steam Deck)' : ''} · AppImage: ${process.env.APPIMAGE ? 'yes' : 'no'} · Vulkan: ${useVulkan ? 'on' : 'off'}`,
+    `Settings: ${JSON.stringify(s)}`,
+    '',
+  ]
+  return header.join('\n') + logger.text()
+}
+
 app.whenReady().then(() => {
+  logger.init()
   const store = new Store()
   backend = new Backend(store, (state) => win?.webContents.send('auth-changed', state))
   updater = new Updater((status) => win?.webContents.send('update-status', status))
@@ -114,6 +127,7 @@ app.whenReady().then(() => {
     listConsoles: () => backend.listConsoles(),
     wakeConsole: (id) => backend.wakeConsole(id),
     listCloudTitles: () => backend.listCloudTitles(),
+    cloudWaitTime: (id) => backend.cloudWaitTime(id),
     streamStart: (kind, id, res) => backend.streamStart(kind, id, res),
     streamStatus: (h) => backend.streamStatus(h),
     streamSdp: (h, offer) => backend.streamSdp(h, offer),
@@ -125,9 +139,27 @@ app.whenReady().then(() => {
     checkForUpdates: () => updater.check(),
     downloadUpdate: () => updater.download(),
     installUpdate: () => updater.install(),
+    getLogs: (limit) => ({ entries: logger.recent(limit ?? 400), file: logger.filePath() }),
+    copyLogs: () => { const text = logReport(); clipboard.writeText(text); return text.split('\n').length },
+    saveLogs: () => {
+      const home = app.getPath('home')
+      let dir = app.getPath('downloads')
+      if (dir === home) dir = path.join(home, 'Downloads')
+      const file = path.join(dir, `greenlight-deck-log-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(file, logReport())
+      return file
+    },
+    clearLogs: () => logger.clear(),
     quit: async () => { await backend.stopAllStreams(); app.quit() },
     appInfo: () => ({ version: app.getVersion(), platform: process.platform, steamDeck: isSteamDeck() }),
   }
+
+  ipcMain.on('deck-log', (_e, level, source, message) => {
+    if (['debug', 'info', 'warn', 'error'].includes(level) && (source === 'ui' || source === 'stream')) {
+      logger.add(level, source, String(message))
+    }
+  })
 
   ipcMain.handle('deck-api', async (_e, method: DeckApiMethod, callArgs: unknown[]) => {
     const fn = api[method]
@@ -135,7 +167,7 @@ app.whenReady().then(() => {
     try {
       return { ok: true, value: await fn(...(callArgs ?? [])) }
     } catch (err) {
-      console.error(`[deck-api] ${method} failed:`, err)
+      console.error(`[deck-api] ${method} failed:`, err instanceof Error ? err.message : err)
       return { ok: false, error: friendly(err instanceof Error ? err.message : String(err)) }
     }
   })

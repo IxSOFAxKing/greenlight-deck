@@ -1,0 +1,62 @@
+name: Greenlight Deck CI
+
+# Builds and tests every change to the app, so a broken change is caught
+# before it reaches a release. Each run also uploads a test AppImage
+# (Actions -> the run -> Artifacts) you can try on the Deck before releasing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/deck/**'
+      - 'packages/player/**'
+      - 'packages/platform/**'
+      - 'yarn.lock'
+      - '.github/workflows/ci-deck.yml'
+  pull_request:
+    paths:
+      - 'packages/deck/**'
+      - 'packages/player/**'
+      - 'packages/platform/**'
+      - 'yarn.lock'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-deck-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Install
+        run: yarn install --frozen-lockfile --ignore-engines --network-timeout 600000
+
+      - name: Typecheck
+        run: yarn deck typecheck
+
+      - name: Build
+        run: yarn deck build
+
+      - name: UI smoke test
+        working-directory: packages/deck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+          xvfb-run -a -s "-screen 0 1280x800x24" npx electron --no-sandbox --disable-gpu scripts/smoke-test.cjs dist
+
+      - name: Package test AppImage
+        working-directory: packages/deck
+        run: npx electron-builder --linux AppImage --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GreenlightDeck-test-${{ github.sha }}
+          path: packages/deck/release/*.AppImage
+          retention-days: 14

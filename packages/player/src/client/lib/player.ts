@@ -14,6 +14,10 @@ import AudioComponent from './render/audio'
 export interface xCloudPlayerOptions {
     /** 'video' uses a <video> element (hardware decode, most compatible). 'webgpu' uses the WebGPU renderer. 'auto' picks webgpu when available. */
     renderer?: 'video' | 'webgpu' | 'auto'
+    /** Ask the host to cap video at this many kbps (SDP b=AS). 0 = let the host decide. */
+    maxVideoBitrate?: number
+    /** Preferred H.264 profile. 'high' looks best, 'low' decodes fastest. 'auto' = high, then medium, then low. */
+    codecProfile?: 'auto' | 'high' | 'medium' | 'low'
 }
 
 export default class xCloudPlayer {
@@ -35,22 +39,22 @@ export default class xCloudPlayer {
     private _videoComponent: VideoComponent | WebGpuComponent | undefined
     private _audioComponent: AudioComponent | undefined
 
-    private _options: Required<xCloudPlayerOptions>
+    readonly options: Required<xCloudPlayerOptions>
 
     constructor(elementId: string, options: xCloudPlayerOptions = {}) {
         console.log('xCloudPlayer constructing...');
 
-        this._options = { renderer: 'webgpu', ...options }
+        this.options = { renderer: 'webgpu', maxVideoBitrate: 0, codecProfile: 'auto', ...options }
         this._elementId = elementId;
         this._peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
         const videoTransceiver = this._peerConnection.addTransceiver('video', { direction: 'recvonly' })
-        videoTransceiver.setCodecPreferences(this._sdpHelper.getDefaultCodecPreferences())
+        videoTransceiver.setCodecPreferences(this._sdpHelper.getDefaultCodecPreferences(this.options.codecProfile))
 
         this._peerConnection.ontrack = (event) => {
 
             if(event.track.kind === 'video'){
                 const hasWebGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
-                const useWebGpu = this._options.renderer === 'webgpu' || (this._options.renderer === 'auto' && hasWebGpu)
+                const useWebGpu = this.options.renderer === 'webgpu' || (this.options.renderer === 'auto' && hasWebGpu)
                 this._videoComponent = useWebGpu ? new WebGpuComponent(this) : new VideoComponent(this)
                 this._videoComponent.create(event.streams[0])
 

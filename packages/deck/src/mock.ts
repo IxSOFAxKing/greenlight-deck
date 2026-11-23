@@ -23,8 +23,12 @@ export function createMockBridge(): DeckBridge {
 
   const names = ['Starfall Odyssey', 'Turbo Circuit', 'Hollow Keep', 'Neon Drift', 'Skyward Isles', 'Iron Tide',
     'Pixel Bakery', 'Frontier Echoes', 'Deep Signal', 'Moss & Stone', 'Glacier Run', 'Night Courier']
+  const genres = [['Action', 'Adventure'], ['Racing'], ['Platformer'], ['Racing', 'Arcade'], ['Adventure'], ['Strategy'],
+    ['Simulation'], ['Shooter', 'Action'], ['Puzzle'], ['Adventure', 'Puzzle'], ['Sports'], ['Action']]
   const titles: CloudTitle[] = names.map((name, i) => ({
-    titleId: `MOCK${i}`, name, recent: i < 4, publisher: 'Sample Studio',
+    titleId: `MOCK${i}`, name, recent: i < 4, publisher: 'Sample Studio', genres: genres[i],
+    description: `${name} is a sample game used to preview the cloud library on your handheld.`,
+    features: i % 2 ? ['Touch controls', 'Online multiplayer'] : ['4K Ultra HD'],
   }))
 
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -42,6 +46,7 @@ export function createMockBridge(): DeckBridge {
     listConsoles: async () => { await delay(400); return consoles },
     wakeConsole: async () => { await delay(300) },
     listCloudTitles: async () => { await delay(500); return titles },
+    cloudWaitTime: async (id: string) => { await delay(400); return Number(id.replace('MOCK', '')) % 3 === 0 ? 0 : 95 },
     streamStart: async () => { await delay(800); return { handle: 'mock', sessionPath: 'v5/sessions/home/mock' } },
     streamStatus: async () => { await delay(500); return { state: 'Failed', errorDetails: { message: 'Mock mode: streaming needs the Electron app.' } } },
     streamSdp: async () => ({ exchangeResponse: null }),
@@ -60,6 +65,10 @@ export function createMockBridge(): DeckBridge {
       setUpdate({ state: 'downloaded', percent: 100 })
     },
     installUpdate: async () => { location.reload() },
+    getLogs: async () => ({ entries: Array.from({ length: 30 }, (_, i) => ({ t: Date.now() - (30 - i) * 4000, level: i % 9 === 0 ? 'warn' as const : 'info' as const, source: i % 3 ? 'stream' as const : 'main' as const, msg: `Sample log line ${i + 1}: ${i % 3 ? 'stream state Provisioning' : 'listConsoles ok (2 consoles)'}` })), file: '~/.config/Greenlight Deck/logs/greenlight-deck.log' }),
+    copyLogs: async () => 30,
+    saveLogs: async () => '~/Downloads/greenlight-deck-log.txt',
+    clearLogs: async () => {},
     quit: async () => { window.close() },
     appInfo: async () => ({ version: '0.2.0-preview', platform: 'browser', steamDeck: false }),
   }
@@ -67,6 +76,7 @@ export function createMockBridge(): DeckBridge {
   return {
     call: ((method: string, ...args: unknown[]) => impl[method](...args)) as DeckBridge['call'],
     onAuthChanged(cb) { authListeners.add(cb); return () => { authListeners.delete(cb) } },
+    log: (level, source, message) => { console.debug(`[${source}] ${level}: ${message}`) },
     onUpdateStatus(cb) { updateListeners.add(cb); return () => { updateListeners.delete(cb) } },
   }
 }

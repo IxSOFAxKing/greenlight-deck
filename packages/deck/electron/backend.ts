@@ -270,19 +270,44 @@ export class Backend {
       } catch { /* catalog is best effort */ }
     }
 
+    const url = (u?: string) => u ? (u.startsWith('//') ? `https:${u}` : u) : undefined
+    const strings = (v: unknown): string[] => Array.isArray(v)
+      ? v.map(x => typeof x === 'string' ? x : (x?.LocalizedName ?? x?.Name ?? '')).filter(Boolean)
+      : typeof v === 'string' && v ? [v] : []
+
     const titles = [...byTitle.values()].map(t => {
       const c = t.productId ? catalog[t.productId] : undefined
-      const img = c?.Image_Tile?.URL ?? c?.Image_Poster?.URL
       return {
         ...t,
         name: c?.ProductTitle ?? t.name,
         publisher: c?.PublisherName,
-        imageUrl: img ? (img.startsWith('//') ? `https:${img}` : img) : undefined,
+        imageUrl: url(c?.Image_Tile?.URL ?? c?.Image_Poster?.URL),
+        posterUrl: url(c?.Image_Poster?.URL),
+        heroUrl: url(c?.Image_Hero?.URL ?? c?.Image_Poster?.URL),
+        description: c?.ProductDescriptionShort ?? c?.ProductDescription,
+        genres: [...new Set(strings(c?.Categories ?? c?.LocalizedCategories ?? c?.Category))].slice(0, 4),
+        features: strings(c?.Attributes).slice(0, 6),
       }
     })
 
     return titles.sort((a, b) =>
       Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
+  }
+
+  async cloudWaitTime(titleId: string): Promise<number | null> {
+    await this.ensureTokens()
+    if (!this.xCloud?.token || !this.xCloud.host) return null
+    try {
+      const res = await fetch(`${this.xCloud.host}/v1/waittime/${encodeURIComponent(titleId)}`, {
+        headers: { Authorization: `Bearer ${this.xCloud.token}`, 'X-Gssv-Client': 'XboxComBrowser' },
+      })
+      if (!res.ok) return null
+      const data: any = await res.json()
+      const secs = data?.estimatedTotalWaitTimeInSeconds ?? data?.estimatedProvisioningTimeInSeconds
+      return typeof secs === 'number' ? secs : null
+    } catch {
+      return null
+    }
   }
 
   // ---------- Streaming ----------

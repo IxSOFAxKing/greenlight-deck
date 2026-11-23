@@ -14,6 +14,10 @@ const bridge: DeckBridge = {
     return () => { ipcRenderer.removeListener('auth-changed', listener) }
   },
 
+  log(level, source, message) {
+    ipcRenderer.send('deck-log', level, source, String(message).slice(0, 4000))
+  },
+
   onUpdateStatus(callback) {
     const listener = (_e: IpcRendererEvent, status: UpdateStatus) => callback(status)
     ipcRenderer.on('update-status', listener)

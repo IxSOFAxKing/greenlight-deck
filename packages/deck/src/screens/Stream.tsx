@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { StreamTarget } from '../App'
-import { call } from '../api'
+import { call, log } from '../api'
 import { HintBar, Spinner } from '../components/ui'
 import { controller } from '../input/controller'
 import { useInputLayer } from '../input/layers'
@@ -9,6 +9,10 @@ import { StreamSession, type StreamStats, type StreamUpdate } from '../stream/se
 import { useSettings } from '../state'
 
 const PLAYER_ID = 'gl-player'
+const MAX_RECONNECTS = 3
+const RECONNECT_DELAYS = [1500, 4000, 9000]
+
+interface Reconnect { attempt: number; reason: string; waitingForNetwork?: boolean }
 
 export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit: () => void }) {
   const { settings, update } = useSettings()
@@ -19,14 +23,50 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
   const [overlay, setOverlay] = useState(false)
   const [stats, setStats] = useState<StreamStats | undefined>()
   const [attempt, setAttempt] = useState(0)
+  const [reconnect, setReconnect] = useState<Reconnect | undefined>()
+  const reconnectRef = useRef<Reconnect | undefined>(undefined)
+  reconnectRef.current = reconnect
 
   const playing = status.phase === 'playing'
+
+  const onUpdate = (u: StreamUpdate) => {
+    if (u.phase === 'playing' && reconnectRef.current) {
+      log('info', 'stream', `Reconnected after ${reconnectRef.current.attempt} attempt(s)`)
+      setReconnect(undefined)
+    }
+    // A stream that was playing (or a reconnect attempt) dropped: try again on our own.
+    const tries = reconnectRef.current?.attempt ?? 0
+    if (u.phase === 'error' && (u.recoverable || reconnectRef.current) && settings.autoReconnect && tries < MAX_RECONNECTS) {
+      setOverlay(false)
+      scheduleReconnect(tries + 1, u.message ?? 'Connection lost')
+      return
+    }
+    if (u.phase === 'error' && reconnectRef.current) setReconnect(undefined)
+    setStatus(u)
+  }
+
+  const scheduleReconnect = (n: number, reason: string) => {
+    const next: Reconnect = { attempt: n, reason, waitingForNetwork: !navigator.onLine }
+    setReconnect(next)
+    setStatus({ phase: 'requesting', message: reason })
+    const go = () => setAttempt(a => a + 1)
+    const delay = RECONNECT_DELAYS[n - 1] ?? 9000
+    log('warn', 'stream', `Reconnect ${n}/${MAX_RECONNECTS} in ${delay}ms: ${reason}`)
+    if (!navigator.onLine) {
+      // Wait (up to a minute) for the network to come back first.
+      const onOnline = () => { window.removeEventListener('online', onOnline); clearTimeout(giveUp); setReconnect({ ...next, waitingForNetwork: false }); setTimeout(go, 1000) }
+      const giveUp = setTimeout(() => { window.removeEventListener('online', onOnline); go() }, 60_000)
+      window.addEventListener('online', onOnline)
+    } else {
+      setTimeout(go, delay)
+    }
+  }
 
   // Start (or restart) the session.
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      if (target.kind === 'home' && target.wake && settings.autoWake) {
+      if (target.kind === 'home' && target.wake && settings.autoWake && !reconnectRef.current) {
         setStatus({ phase: 'requesting', message: `Waking ${target.name}…` })
         try { await call('wakeConsole', target.id) } catch { /* the stream request can still wake it */ }
         await new Promise(r => setTimeout(r, 2500))
@@ -38,8 +78,10 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
         resolution: settings.resolution,
         renderer: settings.renderer,
         vibration: settings.vibration,
+        maxBitrateMbps: settings.maxBitrateMbps,
+        codecProfile: settings.codecProfile,
         elementId: PLAYER_ID,
-        onUpdate: setStatus,
+        onUpdate,
       })
       sessionRef.current = session
       session.start()
@@ -95,6 +137,8 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
   }
 
   const exit = () => {
+    setReconnect(undefined)
+    reconnectRef.current = undefined
     sound.back()
     sessionRef.current?.stop()
     onExit()
@@ -120,8 +164,12 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
       {showConnecting && (
         <div className="stream-status">
           <Spinner size={64} />
-          <h2>{target.name}</h2>
-          <p>{status.message}</p>
+          <h2>{reconnect ? `Reconnecting to ${target.name}` : target.name}</h2>
+          <p>{reconnect
+            ? reconnect.waitingForNetwork ? 'Waiting for Wi-Fi to come back…' : `${reconnect.reason} Trying again (${reconnect.attempt} of ${MAX_RECONNECTS})…`
+            : status.message}</p>
+          {reconnect && target.kind === 'home' && <p className="muted">Your game keeps running on the console.</p>}
+          {reconnect && target.kind === 'cloud' && <p className="muted">Cloud games may restart in a new session.</p>}
           {status.phase === 'queued' && status.waitSeconds ? <p className="muted">About {Math.ceil(status.waitSeconds / 60)} min</p> : null}
           <Steps phase={status.phase} />
           <button className="btn btn-ghost" data-nav data-autofocus onClick={exit}>Cancel</button>
@@ -130,7 +178,7 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
 
       {status.phase === 'error' && (
         <div className="stream-status">
-          <h2>Couldn't connect to {target.name}</h2>
+          <h2>{status.recoverable ? `Lost connection to ${target.name}` : `Couldn't connect to ${target.name}`}</h2>
           <p className="error-text wide">{status.message}</p>
           <div className="row">
             <button className="btn btn-primary" data-nav data-autofocus onClick={() => setAttempt(n => n + 1)}>Try again</button>

@@ -3,6 +3,7 @@
 export type Resolution = 720 | 1080
 export type RendererKind = 'video' | 'webgpu'
 export type VideoFit = 'contain' | 'fill'
+export type CodecProfile = 'auto' | 'high' | 'medium' | 'low'
 
 export interface Settings {
   resolution: Resolution
@@ -14,6 +15,12 @@ export interface Settings {
   autoWake: boolean
   /** Look for a new version on GitHub when the app starts. */
   autoUpdateCheck: boolean
+  /** Cap on video bitrate in Mbps; 0 lets the Xbox decide. */
+  maxBitrateMbps: number
+  /** Preferred H.264 profile for the stream. */
+  codecProfile: CodecProfile
+  /** Rejoin automatically when the connection drops mid-game. */
+  autoReconnect: boolean
 }
 
 export const defaultSettings: Settings = {
@@ -24,6 +31,9 @@ export const defaultSettings: Settings = {
   vibration: true,
   autoWake: true,
   autoUpdateCheck: true,
+  maxBitrateMbps: 0,
+  codecProfile: 'auto',
+  autoReconnect: true,
 }
 
 export type UpdateState =
@@ -74,6 +84,11 @@ export interface CloudTitle {
   imageUrl?: string
   publisher?: string
   recent?: boolean
+  posterUrl?: string
+  heroUrl?: string
+  description?: string
+  genres?: string[]
+  features?: string[]
 }
 
 export type StreamKind = 'home' | 'cloud'
@@ -89,6 +104,13 @@ export interface StreamStatus {
   estimatedTotalWaitTimeInSeconds?: number
 }
 
+export interface LogLine {
+  t: number
+  level: 'debug' | 'info' | 'warn' | 'error'
+  source: 'main' | 'ui' | 'stream'
+  msg: string
+}
+
 /** Methods the renderer may call on the main process (see electron/main.ts). */
 export interface DeckApi {
   getAuthState(): Promise<AuthState>
@@ -102,6 +124,8 @@ export interface DeckApi {
   listConsoles(): Promise<XboxConsole[]>
   wakeConsole(id: string): Promise<void>
   listCloudTitles(): Promise<CloudTitle[]>
+  /** Estimated xCloud queue time in seconds, or null if unknown. */
+  cloudWaitTime(titleId: string): Promise<number | null>
 
   streamStart(kind: StreamKind, id: string, resolution: Resolution): Promise<StreamStartResult>
   streamStatus(handle: string): Promise<StreamStatus>
@@ -116,6 +140,11 @@ export interface DeckApi {
   downloadUpdate(): Promise<void>
   installUpdate(): Promise<void>
 
+  getLogs(limit?: number): Promise<{ entries: LogLine[]; file?: string }>
+  copyLogs(): Promise<number>
+  saveLogs(): Promise<string>
+  clearLogs(): Promise<void>
+
   quit(): Promise<void>
   appInfo(): Promise<{ version: string; platform: string; steamDeck: boolean }>
 }
@@ -126,4 +155,6 @@ export interface DeckBridge {
   call<M extends DeckApiMethod>(method: M, ...args: Parameters<DeckApi[M]>): ReturnType<DeckApi[M]>
   onAuthChanged(callback: (state: AuthState) => void): () => void
   onUpdateStatus(callback: (status: UpdateStatus) => void): () => void
+  /** Fire-and-forget log line into the app's debug log. */
+  log(level: LogLine['level'], source: 'ui' | 'stream', message: string): void
 }

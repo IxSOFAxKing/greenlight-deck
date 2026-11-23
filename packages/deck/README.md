@@ -3,8 +3,9 @@
 A controller-first, handheld-friendly frontend for streaming your Xbox (and Xbox Cloud Gaming) to a Steam Deck. The streaming itself is Greenlight's: this app uses the `@greenlight/platform` and `@greenlight/player` packages from this repo and puts a new UI on top.
 
 - **My Xbox**: lists your consoles, shows whether each one is on or asleep, and can wake one up before streaming
-- **Cloud**: your Xbox Cloud Gaming library (only shown if your account has cloud gaming)
-- **Settings**: 720p/1080p, fit or stretch the picture, performance stats, vibration, and signing out
+- **Cloud**: your Xbox Cloud Gaming library, with search, genre filters, game details and estimated wait times. Only shown if your account has cloud gaming
+- **Settings**: 720p/1080p, max bitrate, video profile, fit or stretch the picture, performance stats, vibration, auto-reconnect, updates, a debug log, and signing out
+- **Auto-reconnect**: if Wi-Fi drops mid-game, the app rejoins your Xbox on its own
 - Sign in with a QR code / short code on your phone. You never type a password on the Deck
 - Every screen works with the D-pad or stick, A/B, and LB/RB. Touch and mouse work too
 
@@ -35,6 +36,7 @@ Version 0.2.0 and later update themselves. Go to **Settings → Check for update
 | | A / B | Select / Back |
 | | LB / RB | Switch tabs |
 | | X (on a console) | Wake it up |
+| | X (in Cloud) | Search |
 | | Y | Refresh |
 | | Left / right (on a setting) | Change its value |
 | In game | Hold **L3 + R3** | Open the stream menu (input to the Xbox pauses) |
@@ -54,7 +56,10 @@ yarn deck start        # run in a window (Electron)
 yarn deck dist         # build the AppImage into packages/deck/release/
 yarn deck preview:ui   # UI only, in a browser, with mock data (?mock=signedout to see sign-in)
 yarn deck typecheck
+yarn deck test:ui      # UI smoke test with mock data (run under xvfb-run on a headless box)
 ```
+
+Every push to `main` runs the **Greenlight Deck CI** workflow: typecheck, build, the UI smoke test, and a test AppImage you can download from the run's Artifacts.
 
 ### How it fits together
 
@@ -79,6 +84,8 @@ shared/api.ts      Types shared by both sides
 The app normally renders through OpenGL, and Vulkan layers like lsfg-vk can't hook OpenGL. Add `--vulkan` to the launch options to render through Vulkan instead, for example `<lsfg launch option> %command% --vulkan`. This is experimental. If video goes black or stutters, remove the flag.
 
 ## Troubleshooting
+
+When something goes wrong, open **Settings → Debug log** and choose **Copy to clipboard** or **Save to Downloads**. Tokens are removed from the log automatically.
 
 - **"Can't reach …"**: the Deck is offline, or a DNS filter is blocking Xbox/Microsoft domains.
 - **Console not listed**: remote features are off, or the console is signed in to a different account.
