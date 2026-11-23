@@ -78,7 +78,11 @@ export class Updater {
 
 function plainNotes(notes: unknown): string | undefined {
   const text = Array.isArray(notes) ? notes.map((n: any) => n?.note ?? '').join('\n') : typeof notes === 'string' ? notes : ''
-  const plain = text.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim()
+  const plain = text
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .split('\n').filter(l => !/^(Co-Authored-By|Claude-Session):/i.test(l.trim())).join('\n')
+    .replace(/\n{3,}/g, '\n\n').trim()
   return plain ? plain.slice(0, 600) : undefined
 }
 

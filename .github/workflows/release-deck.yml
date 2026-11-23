@@ -15,9 +15,9 @@ jobs:
   appimage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: yarn
@@ -37,11 +37,18 @@ jobs:
       - name: Typecheck
         run: yarn deck typecheck
 
+      - name: Release notes from CHANGELOG.md
+        run: |
+          VERSION=$(node -p "require('./packages/deck/package.json').version")
+          awk -v v="## $VERSION" '$0==v {on=1; next} /^## / {on=0} on' packages/deck/CHANGELOG.md > packages/deck/release-notes.md
+          if [ ! -s packages/deck/release-notes.md ]; then echo "Greenlight Deck $VERSION" > packages/deck/release-notes.md; fi
+          cat packages/deck/release-notes.md
+
       - name: Build and publish AppImage
         run: |
           yarn deck build
           cd packages/deck
-          npx electron-builder --linux AppImage --publish always
+          npx electron-builder --linux AppImage --publish always -c.releaseInfo.releaseNotesFile=release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

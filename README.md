@@ -45,12 +45,11 @@ yarn deck dist       # build the AppImage into packages/deck/release/
 
 ## Releasing an update
 
-1. Bump `version` in `packages/deck/package.json` (for example `0.3.0`) and commit.
-2. Tag it and push:
-   ```bash
-   git tag v0.3.0 && git push origin main v0.3.0
-   ```
-3. GitHub Actions builds the AppImage and publishes the release with `latest-linux.yml`. Installed apps will offer the update the next time they check.
+1. Bump `version` in `packages/deck/package.json` (for example `0.3.0`) and add a `## 0.3.0` section to `packages/deck/CHANGELOG.md`. The app shows those notes in its updater.
+2. Commit and push, then either:
+   - tag it: `git tag v0.3.0 && git push origin main v0.3.0`, or
+   - on GitHub: **Actions → Release Greenlight Deck → Run workflow**.
+3. GitHub Actions builds the AppImage and publishes release `v0.3.0` with `latest-linux.yml`. Installed apps offer the update the next time they check.
 
 ## Credits & license
 
