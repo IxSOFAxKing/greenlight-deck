@@ -1,4 +1,4 @@
-import type { AuthState, DeckApi, DeckApiMethod, DeckBridge } from '../shared/api'
+import type { AuthState, DeckApi, DeckApiMethod, DeckBridge, UpdateStatus } from '../shared/api'
 import { createMockBridge } from './mock'
 
 declare global {
@@ -16,4 +16,8 @@ export function call<M extends DeckApiMethod>(method: M, ...args: Parameters<Dec
 
 export function onAuthChanged(cb: (s: AuthState) => void) {
   return bridge.onAuthChanged(cb)
+}
+
+export function onUpdateStatus(cb: (s: UpdateStatus) => void) {
+  return bridge.onUpdateStatus(cb)
 }

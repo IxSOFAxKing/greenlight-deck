@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
-import type { AuthState, DeckBridge } from '../shared/api'
+import type { AuthState, DeckBridge, UpdateStatus } from '../shared/api'
 
 const bridge: DeckBridge = {
   call: (async (method: string, ...args: unknown[]) => {
@@ -12,6 +12,12 @@ const bridge: DeckBridge = {
     const listener = (_e: IpcRendererEvent, state: AuthState) => callback(state)
     ipcRenderer.on('auth-changed', listener)
     return () => { ipcRenderer.removeListener('auth-changed', listener) }
+  },
+
+  onUpdateStatus(callback) {
+    const listener = (_e: IpcRendererEvent, status: UpdateStatus) => callback(status)
+    ipcRenderer.on('update-status', listener)
+    return () => { ipcRenderer.removeListener('update-status', listener) }
   },
 }
 

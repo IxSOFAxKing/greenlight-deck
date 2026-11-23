@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { Settings } from '../../shared/api'
 import { call, isMock } from '../api'
 import { Glyph } from '../components/ui'
-import { useSettings } from '../state'
+import { useSettings, useUpdate } from '../state'
 
 interface Row<K extends keyof Settings> {
   key: K
@@ -24,6 +24,8 @@ const rows: Row<any>[] = [
   { key: 'vibration', label: 'Vibration', help: 'Pass rumble from the game to your controller.',
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
   { key: 'autoWake', label: 'Wake console automatically', help: 'Send a wake signal to a sleeping Xbox before connecting.',
+    options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
+  { key: 'autoUpdateCheck', label: 'Check for updates on launch', help: 'Look for a new version on GitHub each time the app starts. Nothing downloads until you choose to.',
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
 ]
 
@@ -53,6 +55,7 @@ export function SettingsTab() {
             </CycleButton>
           )
         })}
+        <UpdateRow onFocusHelp={setFocusedHelp} />
         <div className="settings-actions">
           <button className="btn" data-nav onFocus={() => setFocusedHelp('Sign out of your Microsoft account on this device.')} onClick={() => call('signOut')}>Sign out</button>
           <button className="btn btn-ghost" data-nav onFocus={() => setFocusedHelp('Close Greenlight Deck.')} onClick={() => call('quit')}>Quit app</button>
@@ -90,6 +93,56 @@ function CycleButton({ children, autofocus, onCycle, onFocus }: {
     <button ref={ref} className="setting-row" data-nav data-cycle="" data-autofocus={autofocus || undefined}
       onClick={() => onCycle(1)} onFocus={onFocus}>
       {children}
+    </button>
+  )
+}
+
+/** One button that walks through check -> download -> restart. */
+function UpdateRow({ onFocusHelp }: { onFocusHelp: (help: string) => void }) {
+  const u = useUpdate()
+  const [busy, setBusy] = useState(false)
+
+  let label = 'Check for updates'
+  let value = `v${u.currentVersion}`
+  let action: (() => Promise<unknown>) | undefined = () => call('checkForUpdates')
+  let help = 'Look for a newer version of Greenlight Deck on GitHub.'
+
+  switch (u.state) {
+    case 'checking': value = 'Checking…'; action = undefined; break
+    case 'not-available': value = `v${u.currentVersion} · up to date`; break
+    case 'available':
+      label = `Download update ${u.version}`; value = 'New'
+      action = () => call('downloadUpdate')
+      help = u.notes ? `What's new in ${u.version}: ${u.notes}` : `Version ${u.version} is available.`
+      break
+    case 'downloading': label = 'Downloading update'; value = `${u.percent ?? 0}%`; action = undefined; break
+    case 'downloaded':
+      label = `Restart to update to ${u.version}`; value = 'Ready'
+      action = () => call('installUpdate')
+      help = 'The app will close, swap in the new version and reopen. This takes a few seconds.'
+      break
+    case 'error': value = 'Try again'; help = u.error ?? 'The update check failed.'; break
+    case 'unsupported':
+      value = `v${u.currentVersion}`; action = undefined
+      help = 'In-app updates work when the app runs from the installed AppImage (via install.sh).'
+      break
+  }
+
+  useEffect(() => {
+    if (document.activeElement?.classList.contains('update-row')) onFocusHelp(help)
+  }, [help, onFocusHelp])
+
+  const run = async () => {
+    if (!action || busy) return
+    setBusy(true)
+    try { await action() } finally { setBusy(false) }
+  }
+
+  return (
+    <button className={`setting-row update-row ${u.state === 'available' || u.state === 'downloaded' ? 'highlight' : ''}`}
+      data-nav aria-busy={!action || busy} onClick={run} onFocus={() => onFocusHelp(help)}>
+      <span className="setting-label">{label}</span>
+      <span className="setting-value">{value}</span>
     </button>
   )
 }

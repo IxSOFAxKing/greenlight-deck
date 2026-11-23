@@ -10,7 +10,7 @@ A controller-first, handheld-friendly frontend for streaming your Xbox (and Xbox
 
 ## Install on a Steam Deck
 
-1. Switch to **Desktop Mode** and download `GreenlightDeck-<version>-x86_64.AppImage` and `install.sh` to the same folder.
+1. Switch to **Desktop Mode** and download `GreenlightDeck-<version>-x86_64.AppImage` and `install.sh` from the [latest release](https://github.com/IxSOFAxKing/greenlight-deck/releases/latest) to the same folder.
 2. Open **Konsole** in that folder and run:
    ```bash
    bash install.sh GreenlightDeck-*.AppImage
@@ -19,6 +19,9 @@ A controller-first, handheld-friendly frontend for streaming your Xbox (and Xbox
 4. Go back to **Gaming Mode**. You'll find it under **Library → Non-Steam**.
 
 Recommended: open the shortcut's **Controller settings** and pick a **Gamepad** layout (not Keyboard/Mouse).
+
+### Updates
+Version 0.2.0 and later update themselves. Go to **Settings → Check for updates**, then **Download** and **Restart to update**. By default the app also checks quietly at launch; you can turn that off in Settings. Updates come from this repo's [GitHub Releases](https://github.com/IxSOFAxKing/greenlight-deck/releases). They only work when the app runs from the installed AppImage.
 
 ### Before your first stream (on the Xbox)
 - **Settings → Devices & connections → Remote features → Enable remote features**

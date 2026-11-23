@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Settings } from '../shared/api'
+import type { Settings, UpdateStatus } from '../shared/api'
 import { defaultSettings } from '../shared/api'
-import { call } from './api'
+import { call, onUpdateStatus } from './api'
 
 interface SettingsCtx {
   settings: Settings
@@ -50,3 +50,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 export const useToast = () => useContext(ToastCtx)
+
+// --- Updates ---
+const UpdateCtx = createContext<UpdateStatus>({ state: 'idle', currentVersion: '' })
+
+export function UpdateProvider({ children }: { children: ReactNode }) {
+  const [status, setStatus] = useState<UpdateStatus>({ state: 'idle', currentVersion: '' })
+  const toast = useToast()
+
+  useEffect(() => {
+    call('getUpdateStatus').then(setStatus).catch(() => {})
+    let announced: string | undefined
+    return onUpdateStatus((s) => {
+      setStatus(s)
+      if (s.state === 'available' && s.version && announced !== s.version) {
+        announced = s.version
+        toast(`Update ${s.version} is available. Open Settings to install it.`)
+      }
+      if (s.state === 'downloaded') toast('Update ready. Restart from Settings to finish.')
+    })
+  }, [toast])
+
+  return <UpdateCtx.Provider value={status}>{children}</UpdateCtx.Provider>
+}
+
+export const useUpdate = () => useContext(UpdateCtx)

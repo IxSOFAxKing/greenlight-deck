@@ -7,7 +7,7 @@ import type { Hint } from '../components/ui'
 import { useInputLayer } from '../input/layers'
 import { focusFirst } from '../input/spatial'
 import { sound } from '../input/sound'
-import { useToast } from '../state'
+import { useToast, useUpdate } from '../state'
 import { SettingsTab } from './Settings'
 
 type Tab = 'consoles' | 'cloud' | 'settings'
@@ -24,6 +24,8 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
   const tabs: Tab[] = auth.hasCloud ? ['consoles', 'cloud', 'settings'] : ['consoles', 'settings']
   const [tab, setTab] = useState<Tab>('consoles')
   const toast = useToast()
+  const update = useUpdate()
+  const updateBadge = update.state === 'available' || update.state === 'downloaded'
 
   const consoles = useLoader(() => call('listConsoles'))
   const cloud = useLoader(() => auth.hasCloud ? call('listCloudTitles') : Promise.resolve([] as CloudTitle[]), tab === 'cloud')
@@ -98,6 +100,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
           {tabs.map(t => (
             <button key={t} className={`tab ${t === tab ? 'active' : ''}`} onClick={() => setTab(t)} tabIndex={-1}>
               {t === 'consoles' ? 'My Xbox' : t === 'cloud' ? 'Cloud' : 'Settings'}
+              {t === 'settings' && updateBadge && <span className="badge-dot" aria-label="Update available" />}
             </button>
           ))}
           <span className="tab-glyph" onClick={() => switchTab(1)}><Glyph name="RB" /></span>

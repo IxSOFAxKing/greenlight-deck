@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Backend } from './backend'
 import { Store } from './store'
+import { Updater } from './updater'
 import type { DeckApiMethod } from '../shared/api'
 
 const args = process.argv.slice(1)
@@ -54,6 +55,7 @@ function friendly(message: string): string {
 
 let win: BrowserWindow | undefined
 let backend: Backend
+let updater: Updater
 
 function createWindow() {
   win = new BrowserWindow({
@@ -100,6 +102,7 @@ function createWindow() {
 app.whenReady().then(() => {
   const store = new Store()
   backend = new Backend(store, (state) => win?.webContents.send('auth-changed', state))
+  updater = new Updater((status) => win?.webContents.send('update-status', status))
 
   const api: Record<DeckApiMethod, (...a: any[]) => unknown> = {
     getAuthState: () => backend.getAuthState(),
@@ -118,6 +121,10 @@ app.whenReady().then(() => {
     streamMsal: (h) => backend.streamMsal(h),
     streamKeepalive: (h) => backend.streamKeepalive(h),
     streamStop: (h) => backend.streamStop(h),
+    getUpdateStatus: () => updater.get(),
+    checkForUpdates: () => updater.check(),
+    downloadUpdate: () => updater.download(),
+    installUpdate: () => updater.install(),
     quit: async () => { await backend.stopAllStreams(); app.quit() },
     appInfo: () => ({ version: app.getVersion(), platform: process.platform, steamDeck: isSteamDeck() }),
   }
@@ -134,6 +141,11 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Quietly look for an update shortly after launch.
+  setTimeout(() => {
+    if (backend.getSettings().autoUpdateCheck) updater.check()
+  }, 8000)
 })
 
 app.on('before-quit', () => { backend?.stopAllStreams() })

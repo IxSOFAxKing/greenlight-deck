@@ -27,4 +27,8 @@ linux:
       Categories: Game;
       StartupWMClass: greenlight-deck
 artifactName: GreenlightDeck-${version}-${arch}.AppImage
-publish: null
+publish:
+  provider: github
+  owner: IxSOFAxKing
+  repo: greenlight-deck
+  releaseType: release

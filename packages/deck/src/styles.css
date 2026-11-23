@@ -209,3 +209,9 @@ img { display: block; }
 .overlay-item.danger { color: var(--bad); }
 
 .boot { gap: 32px; }
+
+/* Updates */
+.tab { position: relative; }
+.badge-dot { position: absolute; top: 7px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.update-row.highlight { border-color: var(--accent); }
+.update-row[aria-busy="true"] .setting-value { opacity: .8; }

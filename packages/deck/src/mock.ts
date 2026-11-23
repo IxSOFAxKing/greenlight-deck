@@ -1,6 +1,6 @@
 // Mock backend used only when the UI runs in a plain browser (yarn preview:ui).
 // Lets you design and test controller navigation without an Xbox account.
-import type { AuthState, CloudTitle, DeckBridge, Settings, XboxConsole } from '../shared/api'
+import type { AuthState, CloudTitle, DeckBridge, Settings, UpdateStatus, XboxConsole } from '../shared/api'
 import { defaultSettings } from '../shared/api'
 
 export function createMockBridge(): DeckBridge {
@@ -8,6 +8,9 @@ export function createMockBridge(): DeckBridge {
   let signedIn = params.get('mock') !== 'signedout'
   let settings: Settings = { ...defaultSettings }
   const authListeners = new Set<(s: AuthState) => void>()
+  const updateListeners = new Set<(s: UpdateStatus) => void>()
+  let update: UpdateStatus = { state: 'idle', currentVersion: '0.2.0' }
+  const setUpdate = (patch: Partial<UpdateStatus>) => { update = { ...update, ...patch }; updateListeners.forEach(l => l(update)) }
 
   const auth = (): AuthState => signedIn
     ? { signedIn: true, hasCloud: true, profile: { gamertag: 'DeckPlayer42', gamerscore: '12840' } }
@@ -46,12 +49,24 @@ export function createMockBridge(): DeckBridge {
     streamMsal: async () => {},
     streamKeepalive: async () => {},
     streamStop: async () => {},
+    getUpdateStatus: async () => update,
+    checkForUpdates: async () => {
+      setUpdate({ state: 'checking' }); await delay(700)
+      setUpdate({ state: 'available', version: '0.3.0', notes: 'Smoother menus and a faster connect.' })
+      return update
+    },
+    downloadUpdate: async () => {
+      for (let p = 0; p <= 100; p += 20) { setUpdate({ state: 'downloading', percent: p }); await delay(250) }
+      setUpdate({ state: 'downloaded', percent: 100 })
+    },
+    installUpdate: async () => { location.reload() },
     quit: async () => { window.close() },
-    appInfo: async () => ({ version: '0.1.0-preview', platform: 'browser', steamDeck: false }),
+    appInfo: async () => ({ version: '0.2.0-preview', platform: 'browser', steamDeck: false }),
   }
 
   return {
     call: ((method: string, ...args: unknown[]) => impl[method](...args)) as DeckBridge['call'],
     onAuthChanged(cb) { authListeners.add(cb); return () => { authListeners.delete(cb) } },
+    onUpdateStatus(cb) { updateListeners.add(cb); return () => { updateListeners.delete(cb) } },
   }
 }

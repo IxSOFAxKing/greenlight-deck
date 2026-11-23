@@ -12,6 +12,8 @@ export interface Settings {
   vibration: boolean
   /** Send a wake command to consoles in standby before starting a stream. */
   autoWake: boolean
+  /** Look for a new version on GitHub when the app starts. */
+  autoUpdateCheck: boolean
 }
 
 export const defaultSettings: Settings = {
@@ -21,6 +23,20 @@ export const defaultSettings: Settings = {
   showStats: false,
   vibration: true,
   autoWake: true,
+  autoUpdateCheck: true,
+}
+
+export type UpdateState =
+  | 'idle' | 'checking' | 'available' | 'not-available'
+  | 'downloading' | 'downloaded' | 'error' | 'unsupported'
+
+export interface UpdateStatus {
+  state: UpdateState
+  currentVersion: string
+  version?: string
+  percent?: number
+  notes?: string
+  error?: string
 }
 
 export interface Profile {
@@ -95,6 +111,11 @@ export interface DeckApi {
   streamKeepalive(handle: string): Promise<void>
   streamStop(handle: string): Promise<void>
 
+  getUpdateStatus(): Promise<UpdateStatus>
+  checkForUpdates(): Promise<UpdateStatus>
+  downloadUpdate(): Promise<void>
+  installUpdate(): Promise<void>
+
   quit(): Promise<void>
   appInfo(): Promise<{ version: string; platform: string; steamDeck: boolean }>
 }
@@ -104,4 +125,5 @@ export type DeckApiMethod = keyof DeckApi
 export interface DeckBridge {
   call<M extends DeckApiMethod>(method: M, ...args: Parameters<DeckApi[M]>): ReturnType<DeckApi[M]>
   onAuthChanged(callback: (state: AuthState) => void): () => void
+  onUpdateStatus(callback: (status: UpdateStatus) => void): () => void
 }

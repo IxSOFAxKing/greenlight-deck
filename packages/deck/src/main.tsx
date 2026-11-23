@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import { controller } from './input/controller'
-import { SettingsProvider, ToastProvider } from './state'
+import { SettingsProvider, ToastProvider, UpdateProvider } from './state'
 import './styles.css'
 
 controller.start()
@@ -9,7 +9,9 @@ controller.start()
 createRoot(document.getElementById('root')!).render(
   <SettingsProvider>
     <ToastProvider>
-      <App />
+      <UpdateProvider>
+        <App />
+      </UpdateProvider>
     </ToastProvider>
   </SettingsProvider>,
 )

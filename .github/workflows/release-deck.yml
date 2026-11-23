@@ -1,0 +1,52 @@
+name: Release Greenlight Deck
+
+# Push a tag like v0.3.0 (matching packages/deck/package.json "version")
+# to build the AppImage and publish it as a GitHub Release. The in-app
+# updater reads latest-linux.yml from the newest release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          APP_VERSION=$(node -p "require('./packages/deck/package.json').version")
+          if [ "v$APP_VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match packages/deck version v$APP_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Install
+        run: yarn install --frozen-lockfile --ignore-engines --network-timeout 600000
+
+      - name: Typecheck
+        run: yarn deck typecheck
+
+      - name: Build and publish AppImage
+        run: |
+          yarn deck build
+          cd packages/deck
+          npx electron-builder --linux AppImage --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach installer script
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: gh release upload "${GITHUB_REF_NAME}" packages/deck/deck/install.sh --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
