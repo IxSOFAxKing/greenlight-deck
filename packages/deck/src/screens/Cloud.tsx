@@ -94,7 +94,7 @@ export function CloudTab({ state, onPlay, controls }: {
           {shown.map((t, i) => (
             <button key={t.titleId} className="poster" data-nav data-autofocus={i === 0 || undefined} onClick={() => setDetail(t)} title={t.name}>
               {(t.posterUrl ?? t.imageUrl)
-                ? <img src={t.posterUrl ?? t.imageUrl} alt="" loading="lazy" />
+                ? <img src={t.posterUrl ?? t.imageUrl} alt="" loading="lazy" decoding="async" />
                 : <div className="tile-fallback">{t.name.slice(0, 2)}</div>}
               <span className="poster-name">{t.name}</span>
               {t.recent && <span className="poster-badge">Recent</span>}

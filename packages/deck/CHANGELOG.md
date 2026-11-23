@@ -2,6 +2,11 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.3.4
+- Smooth fast scrolling: holding a direction no longer makes the list lag behind the highlight and catch up when you let go
+- Scrolling back up to the top shows the whole top of the page, so the search bar and categories are no longer cut off
+- Lighter on the Deck while scrolling large lists
+
 ## 0.3.3
 - Fixed: controls working only some of the time. When the Xbox finished connecting, the streaming code told it the controller had disconnected, and also dropped the controller if it was already attached. Whether controls worked depended on which happened first
 - Shorter debug log (long connection details are trimmed)

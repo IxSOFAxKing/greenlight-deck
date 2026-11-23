@@ -3,7 +3,7 @@
   "name": "greenlight-deck",
   "productName": "Greenlight Deck",
   "description": "Controller-first handheld frontend for Greenlight Xbox remote play and xCloud",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "license": "MIT",
   "author": "Greenlight Deck contributors",
   "main": "dist-electron/main.cjs",

@@ -25,6 +25,8 @@ export function createMockBridge(): DeckBridge {
     'Pixel Bakery', 'Frontier Echoes', 'Deep Signal', 'Moss & Stone', 'Glacier Run', 'Night Courier']
   const genres = [['Action', 'Adventure'], ['Racing'], ['Platformer'], ['Racing', 'Arcade'], ['Adventure'], ['Strategy'],
     ['Simulation'], ['Shooter', 'Action'], ['Puzzle'], ['Adventure', 'Puzzle'], ['Sports'], ['Action']]
+  // ?many=1 previews a full-size library (~400 games) for scrolling tests.
+  if (params.get('many')) for (let i = names.length; i < 400; i++) { names.push(`Sample Game ${i + 1}`); genres.push(['Action']) }
   const titles: CloudTitle[] = names.map((name, i) => ({
     titleId: `MOCK${i}`, name, recent: i < 4, publisher: 'Sample Studio', genres: genres[i],
     description: `${name} is a sample game used to preview the cloud library on your handheld.`,

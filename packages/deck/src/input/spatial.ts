@@ -5,19 +5,66 @@ export type Direction = 'up' | 'down' | 'left' | 'right'
 
 const SELECTOR = '[data-nav]:not([disabled]):not([aria-hidden="true"])'
 
+// Cheap check (no style recalculation per element): it has a box on the page.
 function visible(el: HTMLElement) {
+  if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false
   const r = el.getBoundingClientRect()
-  return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'
+  return r.width > 0 && r.height > 0
 }
 
 export function focusables(scope: ParentNode): HTMLElement[] {
   return [...scope.querySelectorAll<HTMLElement>(SELECTOR)].filter(visible)
 }
 
+/** Space kept between the highlight and the edge of a scrolling area. */
+const EDGE_MARGIN = 28
+/** Items this close to the start of a list scroll it all the way back to the start. */
+const SNAP_TO_START_PX = 240
+
+let lastMove = 0
+
+function isScroller(el: HTMLElement, axis: 'x' | 'y') {
+  const style = getComputedStyle(el)
+  const overflow = axis === 'y' ? style.overflowY : style.overflowX
+  if (overflow !== 'auto' && overflow !== 'scroll') return false
+  return axis === 'y' ? el.scrollHeight > el.clientHeight + 1 : el.scrollWidth > el.clientWidth + 1
+}
+
+function reveal(el: HTMLElement, scroller: HTMLElement, axis: 'x' | 'y', instant: boolean) {
+  const r = el.getBoundingClientRect()
+  const p = scroller.getBoundingClientRect()
+  const start = axis === 'y' ? r.top : r.left
+  const end = axis === 'y' ? r.bottom : r.right
+  const pStart = axis === 'y' ? p.top : p.left
+  const pEnd = axis === 'y' ? p.bottom : p.right
+  const current = axis === 'y' ? scroller.scrollTop : scroller.scrollLeft
+  const offsetInContent = start - pStart + current
+
+  let target = current
+  if (offsetInContent < SNAP_TO_START_PX) target = 0
+  else if (start < pStart + EDGE_MARGIN) target = current - (pStart + EDGE_MARGIN - start)
+  else if (end > pEnd - EDGE_MARGIN) target = current + (end - (pEnd - EDGE_MARGIN))
+  if (Math.abs(target - current) < 1) return
+
+  scroller.scrollTo({ [axis === 'y' ? 'top' : 'left']: target, behavior: instant ? 'auto' : 'smooth' })
+}
+
 export function focusEl(el: HTMLElement | null | undefined) {
   if (!el) return false
   el.focus({ preventScroll: true })
-  el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+
+  // Holding a direction fires a move every ~100 ms: jump instantly so the page
+  // never falls behind the highlight. Single presses still scroll smoothly.
+  const now = performance.now()
+  const instant = now - lastMove < 250
+  lastMove = now
+
+  let foundY = false
+  let foundX = false
+  for (let p = el.parentElement; p && (!foundY || !foundX); p = p.parentElement) {
+    if (!foundY && isScroller(p, 'y')) { reveal(el, p, 'y', instant); foundY = true }
+    if (!foundX && isScroller(p, 'x')) { reveal(el, p, 'x', instant); foundX = true }
+  }
   return true
 }
 
