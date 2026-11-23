@@ -23,13 +23,21 @@ function isSteamDeck(): boolean {
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-zero-copy')
-app.commandLine.appendSwitch('enable-features', [
+// --vulkan renders through Vulkan instead of OpenGL, so Vulkan layers such as
+// lsfg-vk (Lossless Scaling frame generation) can hook the window. Experimental.
+const useVulkan = args.includes('--vulkan') || process.env.DECK_VULKAN === '1'
+const features = [
   'VaapiVideoDecoder',
   'VaapiVideoDecodeLinuxGL',
   'VaapiIgnoreDriverChecks',
   'AcceleratedVideoDecodeLinuxGL',
   'AcceleratedVideoDecodeLinuxZeroCopyGL',
-].join(','))
+]
+if (useVulkan) {
+  features.push('Vulkan', 'VulkanFromANGLE', 'DefaultANGLEVulkan')
+  app.commandLine.appendSwitch('use-angle', 'vulkan')
+}
+app.commandLine.appendSwitch('enable-features', features.join(','))
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
