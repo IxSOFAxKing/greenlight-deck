@@ -12,6 +12,7 @@ interface GamepadHandlers {
 
 export default class ControlChannel extends Channel {
     _keyframeInterval
+    private _authorized = false
     _gamepadHandlers:GamepadHandlers = {
         0: undefined,
         1: undefined,
@@ -47,9 +48,25 @@ export default class ControlChannel extends Channel {
         })
 
         this.send(authRequest)
+        this._authorized = true
 
-        this.sendGamepadState(0, true)
-        this.sendGamepadState(0, false)
+        // Announce controllers that were attached before the session was ready.
+        // (This used to send "added" + "removed" for index 0, and the removal also
+        // dropped an already-attached controller: input then never reached the
+        // console whenever the controller attached before the handshake finished.)
+        let announced = 0
+        for(const index of [0, 1, 2, 3] as const){
+            if(this._gamepadHandlers[index] !== undefined){
+                this.announceGamepad(index, true)
+                announced++
+            }
+        }
+        if(announced === 0){
+            // Nothing attached yet: register pad 0 so the console expects input; the
+            // handler announces itself again when it attaches.
+            this.announceGamepad(0, true)
+        }
+        console.log('[ControlChannel] Authorized; announced', announced, 'attached controller(s)')
 
         // if(this.getPlayer()._config.keyframe_interval > 0) {
         //     this._keyframeInterval = setInterval(() => {
@@ -71,11 +88,19 @@ export default class ControlChannel extends Channel {
             this._gamepadHandlers[gamepadIndex] = undefined
         }
 
+        // Before authorization the console would ignore this; sendAuthorization() announces it then.
+        if(this._authorized){
+            this.announceGamepad(gamepadIndex, wasAdded)
+        }
+    }
+
+    private announceGamepad(gamepadIndex: number, wasAdded: boolean){
         const gamepadRequest = JSON.stringify({
             'message': 'gamepadChanged',
             'gamepadIndex': gamepadIndex,
             'wasAdded': wasAdded,
         })
+        console.log('[ControlChannel] gamepadChanged', gamepadIndex, wasAdded ? 'added' : 'removed')
         this.send(gamepadRequest)
     }
 

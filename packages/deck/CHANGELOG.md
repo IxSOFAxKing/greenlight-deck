@@ -2,6 +2,10 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.3.3
+- Fixed: controls working only some of the time. When the Xbox finished connecting, the streaming code told it the controller had disconnected, and also dropped the controller if it was already attached. Whether controls worked depended on which happened first
+- Shorter debug log (long connection details are trimmed)
+
 ## 0.3.2
 - Fixed: the controller not working in the Xbox stream (menus worked). Reading a controller without a Guide button (like Steam's virtual pad) crashed the input loop, which then stopped for good
 - The input loop now survives any error and keeps sending your controls

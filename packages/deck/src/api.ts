@@ -24,7 +24,9 @@ export function onUpdateStatus(cb: (s: UpdateStatus) => void) {
 
 /** Write a line to the app's debug log (Settings → Debug log). */
 export function log(level: 'debug' | 'info' | 'warn' | 'error', source: 'ui' | 'stream', ...parts: unknown[]) {
-  const msg = parts.map(p => p instanceof Error ? (p.stack ?? p.message) : typeof p === 'string' ? p : safeJson(p)).join(' ')
+  let msg = parts.map(p => p instanceof Error ? (p.stack ?? p.message) : typeof p === 'string' ? p : safeJson(p)).join(' ')
+  // Connection descriptions (SDP) are huge and rarely useful in a pasted log.
+  if (msg.startsWith('[SDP]') && msg.length > 240) msg = `${msg.slice(0, 240)}… (${msg.length} chars)`
   try { bridge.log(level, source, msg) } catch { /* never let logging break the UI */ }
 }
 

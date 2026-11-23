@@ -3,6 +3,7 @@
 // what reaches the Xbox. Run: yarn deck test:gamepad
 import Gamepad from '../../player/src/client/lib/input/gamepad'
 import InputChannel from '../../player/src/client/lib/channel/input'
+import ControlChannel from '../../player/src/client/lib/channel/control'
 const mk = (index: number, id: string, n = 17, pressed: number[] = [], axes = [0, 0, 0, 0]) => ({ index, id, connected: true, mapping: 'standard', timestamp: 1, axes,
   buttons: Array.from({ length: n }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })) })
 let pads: any[] = []
@@ -67,6 +68,30 @@ function session(initial: any[]) {
   console.error = origErr
   ok('input loop survives an exception', calls > 3 && sent > 2, `(${calls} polls, ${sent} frames sent)`)
   ;(globalThis as any).__stop = true }
+
+// 8/9. Controller must survive the session handshake, whichever happens first
+function controlChannel() {
+  const sent: any[] = []
+  const ch: any = Object.create(ControlChannel.prototype)
+  ch._gamepadHandlers = { 0: undefined, 1: undefined, 2: undefined, 3: undefined }
+  ch._authorized = false
+  ch.send = (msg: string) => sent.push(JSON.parse(msg))
+  return { ch, sent }
+}
+for (const order of ['attach before handshake', 'attach after handshake']) {
+  const { ch, sent } = controlChannel()
+  pads = [mk(0, 'Steam Virtual Gamepad', 17)]
+  const g = new Gamepad(0, { enable_keyboard: false })
+  const player: any = { _channels: { control: ch } }
+  ch.getPlayer = () => player
+  if (order === 'attach before handshake') { g.attach(player); ch.sendAuthorization() }
+  else { ch.sendAuthorization(); g.attach(player) }
+  const pad0 = sent.filter(m => m.message === 'gamepadChanged' && m.gamepadIndex === 0)
+  const last = pad0[pad0.length - 1]
+  ok(`${order}: controller stays attached`, ch._gamepadHandlers[0] === g)
+  ok(`${order}: Xbox told it's connected`, !!last && last.wasAdded === true && !pad0.some(m => m.wasAdded === false),
+    `(${pad0.map(m => m.wasAdded ? 'added' : 'removed').join(' → ')})`)
+}
 
 quiet(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
