@@ -11,6 +11,11 @@ import VideoComponent from './render/video'
 import WebGpuComponent from './render/webgpu'
 import AudioComponent from './render/audio'
 
+export interface xCloudPlayerOptions {
+    /** 'video' uses a <video> element (hardware decode, most compatible). 'webgpu' uses the WebGPU renderer. 'auto' picks webgpu when available. */
+    renderer?: 'video' | 'webgpu' | 'auto'
+}
+
 export default class xCloudPlayer {
 
     _peerConnection = new RTCPeerConnection({})
@@ -30,9 +35,12 @@ export default class xCloudPlayer {
     private _videoComponent: VideoComponent | WebGpuComponent | undefined
     private _audioComponent: AudioComponent | undefined
 
-    constructor(elementId: string) {
+    private _options: Required<xCloudPlayerOptions>
+
+    constructor(elementId: string, options: xCloudPlayerOptions = {}) {
         console.log('xCloudPlayer constructing...');
 
+        this._options = { renderer: 'webgpu', ...options }
         this._elementId = elementId;
         this._peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
         const videoTransceiver = this._peerConnection.addTransceiver('video', { direction: 'recvonly' })
@@ -41,8 +49,9 @@ export default class xCloudPlayer {
         this._peerConnection.ontrack = (event) => {
 
             if(event.track.kind === 'video'){
-                // this._videoComponent = new VideoComponent(this)
-                this._videoComponent = new WebGpuComponent(this)
+                const hasWebGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
+                const useWebGpu = this._options.renderer === 'webgpu' || (this._options.renderer === 'auto' && hasWebGpu)
+                this._videoComponent = useWebGpu ? new WebGpuComponent(this) : new VideoComponent(this)
                 this._videoComponent.create(event.streams[0])
 
             } else if(event.track.kind === 'audio'){
@@ -132,6 +141,7 @@ export default class xCloudPlayer {
                 this._channels[channel].destroy()
             }
 
+            this._statsHelper.destroy()
             if(this._videoComponent){ this._videoComponent.destroy() }
             if(this._audioComponent){ this._audioComponent.destroy() }
 

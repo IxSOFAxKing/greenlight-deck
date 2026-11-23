@@ -17,12 +17,17 @@ export default class Stats {
     _remoteIsLocal = false
     _remoteIsIpv6 = false
     _activeRemoteCandidate:string = ''
+    private _interval: ReturnType<typeof setInterval> | undefined
 
     constructor(player:xCloudPlayer) {
         this._player = player
         this._peerConnection = player._peerConnection
 
-        setInterval(this.loop.bind(this), 1000)
+        this._interval = setInterval(this.loop.bind(this), 1000)
+    }
+
+    destroy(){
+        clearInterval(this._interval)
     }
 
     loop(){

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "types": ["node"],
+    "paths": {
+      "@greenlight/platform": ["../platform/src/index.ts"],
+      "@greenlight/player/server": ["../player/src/server/index.ts"]
+    }
+  },
+  "include": ["electron", "shared"]
+}

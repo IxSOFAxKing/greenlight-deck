@@ -16,11 +16,11 @@
     "playground": "yarn workspace @greenlight/platform-playground",
     "player": "yarn workspace @greenlight/player",
     "pages": "yarn workspace @greenlight/pages",
-
     "build:depsv3": "yarn logger build && yarn player build && yarn platform build",
     "build:pages": "yarn build:depsv3 && yarn pages build",
     "deploy:pages": "yarn pages deploy",
-    "test:v3": "yarn logger test && yarn platform test"
+    "test:v3": "yarn logger test && yarn platform test",
+    "deck": "yarn workspace greenlight-deck"
   },
   "workspaces": [
     "packages/logger",
@@ -30,7 +30,8 @@
     "packages/platform-playground",
     "packages/desktop",
     "packages/desktop-v3",
-    "packages/docs"
+    "packages/docs",
+    "packages/deck"
   ],
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

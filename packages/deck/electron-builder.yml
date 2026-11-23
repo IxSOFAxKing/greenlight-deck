@@ -1,0 +1,30 @@
+appId: io.github.greenlight.deck
+productName: Greenlight Deck
+executableName: greenlight-deck
+copyright: MIT licensed. Streaming core by the Greenlight project.
+directories:
+  output: release
+  buildResources: resources
+files:
+  - package.json
+  - dist/**/*
+  - dist-electron/*.cjs
+  - resources/icon.png
+  - "!**/*.map"
+npmRebuild: false
+asar: true
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Game
+  icon: resources/icon.png
+  synopsis: Stream your Xbox to your handheld
+  description: Controller-first frontend for Xbox remote play and cloud gaming, built on Greenlight.
+  desktop:
+    entry:
+      Name: Greenlight Deck
+      Categories: Game;
+      StartupWMClass: greenlight-deck
+artifactName: GreenlightDeck-${version}-${arch}.AppImage
+publish: null
