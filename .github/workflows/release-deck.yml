@@ -7,6 +7,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      notes_only:
+        description: 'Only update the release notes of the current version (no build)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -20,7 +25,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: yarn
+          cache: ${{ !inputs.notes_only && 'yarn' || '' }}
 
       - name: Check tag matches app version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -32,9 +37,11 @@ jobs:
           fi
 
       - name: Install
+        if: ${{ !inputs.notes_only }}
         run: yarn install --frozen-lockfile --ignore-engines --network-timeout 600000
 
       - name: Typecheck
+        if: ${{ !inputs.notes_only }}
         run: yarn deck typecheck
 
       - name: Release notes from CHANGELOG.md
@@ -45,6 +52,7 @@ jobs:
           cat packages/deck/release-notes.md
 
       - name: Build and publish AppImage
+        if: ${{ !inputs.notes_only }}
         run: |
           yarn deck build
           cd packages/deck
@@ -53,8 +61,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Attach installer script
+        if: ${{ !inputs.notes_only }}
         run: |
           VERSION=$(node -p "require('./packages/deck/package.json').version")
           gh release upload "v$VERSION" packages/deck/deck/install.sh --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set release notes
+        run: |
+          VERSION=$(node -p "require('./packages/deck/package.json').version")
+          gh release edit "v$VERSION" --title "Greenlight Deck $VERSION" --notes-file packages/deck/release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
