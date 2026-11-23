@@ -71,6 +71,10 @@ shared/api.ts      Types shared by both sides
 - One small change to `@greenlight/player`: `xCloudPlayer` now takes a `renderer` option (`video` | `webgpu` | `auto`), and its stats timer is cleared on destroy. The default `<video>` renderer uses VA-API hardware decoding on the Deck. WebGPU is optional and experimental.
 - Your sign-in token is stored in the app's config folder. It's encrypted with the system keyring when one is available. Otherwise it's saved in a file only your user can read, which is usual in Gaming Mode.
 
+## Frame generation (Lossless Scaling / lsfg-vk)
+
+The app normally renders through OpenGL, and Vulkan layers like lsfg-vk can't hook OpenGL. Add `--vulkan` to the launch options to render through Vulkan instead, for example `<lsfg launch option> %command% --vulkan`. This is experimental. If video goes black or stutters, remove the flag.
+
 ## Troubleshooting
 
 - **"Can't reach …"**: the Deck is offline, or a DNS filter is blocking Xbox/Microsoft domains.
