@@ -277,3 +277,5 @@ img { display: block; }
 .pill.subtle { background: transparent; border: 1px solid var(--line); color: var(--muted); font-weight: 600; }
 .wait { margin: 6px 0 10px; font-weight: 700; color: var(--warn); }
 .wait.ready { color: var(--accent); }
+
+.mini-spinner { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; border-radius: 50%; border: 2px solid rgba(255,255,255,.15); border-top-color: var(--accent); animation: spin .9s linear infinite; }

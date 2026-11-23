@@ -5,6 +5,7 @@
 import xCloudPlayer from '@gl/player'
 import Gamepad from '@gl/gamepad'
 import { call, log } from '../api'
+import { controller } from '../input/controller'
 import type { CodecProfile, RendererKind, Resolution, StreamKind } from '../../shared/api'
 
 export type StreamPhase =
@@ -171,6 +172,7 @@ export class StreamSession {
 
     this.gamepad = new Gamepad(0, { enable_keyboard: false, enable_vibration: this.opts.vibration })
     this.gamepad.attach(player)
+    log('info', 'stream', `Controllers: ${controller.describePads()}`)
   }
 
   /** Treat the video freezing for a while as a dropped connection, even if WebRTC hasn't noticed. */

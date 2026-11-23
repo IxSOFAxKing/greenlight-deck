@@ -30,7 +30,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
   const updateBadge = update.state === 'available' || update.state === 'downloaded'
 
   const consoles = useLoader(() => call('listConsoles'))
-  const cloud = useLoader(() => auth.hasCloud ? call('listCloudTitles') : Promise.resolve([] as CloudTitle[]), tab === 'cloud')
+  const cloud = useCloudLibrary(auth.hasCloud, tab === 'cloud')
 
   const switchTab = (delta: number) => {
     const i = tabs.indexOf(tab)
@@ -39,11 +39,23 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
     sound.move()
   }
 
-  // Move focus into the new tab's content.
+  // Switching tabs moves focus into the new tab's content.
   useEffect(() => {
     const t = requestAnimationFrame(() => { if (contentRef.current) focusFirst(contentRef.current) })
     return () => cancelAnimationFrame(t)
-  }, [tab, consoles.data, cloud.data])
+  }, [tab])
+
+  // When a list finishes loading (or refreshes in the background), only place
+  // focus if nothing is focused yet; never yank it away from where the user is.
+  useEffect(() => {
+    const t = requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (contentRef.current && (!active || active === document.body || !ref.current?.contains(active))) {
+        if (!document.querySelector('.modal')) focusFirst(contentRef.current)
+      }
+    })
+    return () => cancelAnimationFrame(t)
+  }, [consoles.data, cloud.data])
 
   const focusedConsole = (): XboxConsole | undefined => {
     const id = (document.activeElement as HTMLElement | null)?.dataset.consoleId
@@ -67,7 +79,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
     if (action === 'rb') { switchTab(1); return true }
     if (action === 'y') {
       if (tab === 'consoles') consoles.reload()
-      if (tab === 'cloud') cloud.reload()
+      if (tab === 'cloud') cloud.refresh()
       return true
     }
     if (action === 'x' && tab === 'cloud') { cloudControls.current?.openSearch(); return true }
@@ -91,7 +103,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
   const hints: Hint[] = tab === 'consoles'
     ? [{ glyph: 'A', label: 'Stream' }, { glyph: 'X', label: 'Wake' }, { glyph: 'Y', label: 'Refresh', onClick: consoles.reload }]
     : tab === 'cloud'
-      ? [{ glyph: 'A', label: 'Details' }, { glyph: 'X', label: 'Search', onClick: () => cloudControls.current?.openSearch() }, { glyph: 'Y', label: 'Refresh', onClick: cloud.reload }]
+      ? [{ glyph: 'A', label: 'Details' }, { glyph: 'X', label: 'Search', onClick: () => cloudControls.current?.openSearch() }, { glyph: 'Y', label: 'Refresh', onClick: cloud.refresh }]
       : [{ glyph: 'A', label: 'Change' }]
 
   return (
@@ -207,4 +219,55 @@ function useLoader<T>(fn: () => Promise<T>, enabled = true): Loader<T> {
   useEffect(() => { if (enabled && !loadedOnce) reload() }, [enabled, loadedOnce, reload])
 
   return { data, loading, error, reload }
+}
+
+// ---------- cloud library: show the cached list instantly, refresh quietly ----------
+
+const CLOUD_STALE_MS = 60 * 60 * 1000
+
+interface CloudState extends Loader<CloudTitle[]> { refresh: () => void; updating: boolean; cachedAt?: number }
+
+function useCloudLibrary(hasCloud: boolean, enabled: boolean): CloudState {
+  const [data, setData] = useState<CloudTitle[] | undefined>()
+  const [cachedAt, setCachedAt] = useState<number | undefined>()
+  const [loading, setLoading] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [error, setError] = useState<string | undefined>()
+  const started = useRef(false)
+
+  const refresh = useCallback(() => {
+    if (!hasCloud) return
+    setUpdating(true)
+    call('listCloudTitles', true)
+      .then(lib => { setData(lib.titles); setCachedAt(lib.cachedAt); setError(undefined) })
+      .catch(e => { setError(prev => data ? prev : (e instanceof Error ? e.message : String(e))) })
+      .finally(() => setUpdating(false))
+  }, [hasCloud, data])
+
+  const load = useCallback(() => {
+    if (!hasCloud) { setData([]); return }
+    setLoading(true)
+    setError(undefined)
+    call('listCloudTitles')
+      .then(lib => {
+        setData(lib.titles)
+        setCachedAt(lib.cachedAt)
+        // Cached copy is old: show it now, fetch a fresh one in the background.
+        if (Date.now() - lib.cachedAt > CLOUD_STALE_MS) {
+          setUpdating(true)
+          call('listCloudTitles', true)
+            .then(fresh => { setData(fresh.titles); setCachedAt(fresh.cachedAt) })
+            .catch(() => { /* keep showing the cached list */ })
+            .finally(() => setUpdating(false))
+        }
+      })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false))
+  }, [hasCloud])
+
+  useEffect(() => {
+    if (enabled && !started.current) { started.current = true; load() }
+  }, [enabled, load])
+
+  return { data, loading, error, reload: load, refresh, updating, cachedAt }
 }

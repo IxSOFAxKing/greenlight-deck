@@ -2,6 +2,13 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.3.1
+- Fixed: controls sometimes not working after connecting. The stream now uses the controller you're actually pressing (the Steam Deck lists more than one) and switches automatically if needed
+- Fixed: closing the in-game menu could leave the controller paused if a device reported a stuck button
+- Cloud library opens instantly after the first load (cached), refreshes quietly in the background, loads from your region's server, and downloads smaller box art
+- Fixed: a background refresh could move the highlight while you were typing a search
+- The debug log now lists connected controllers and cloud loading times
+
 ## 0.3.0
 - Reconnects automatically when the connection drops mid-game (up to 3 tries, waits for Wi-Fi to come back)
 - Detects a frozen stream even when the connection still looks fine

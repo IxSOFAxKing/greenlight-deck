@@ -90,6 +90,7 @@ When something goes wrong, open **Settings → Debug log** and choose **Copy to 
 - **"Can't reach …"**: the Deck is offline, or a DNS filter is blocking Xbox/Microsoft domains.
 - **Console not listed**: remote features are off, or the console is signed in to a different account.
 - **Stuck on "Waking up your Xbox…"**: the console is in Energy saver mode. Switch it to Sleep.
+- **Controls don't respond in a game**: press any button once. The stream switches to the controller you're using. If it still doesn't respond, the debug log's `Controllers:` line shows which controllers the app can see.
 - **Black screen with audio**: in Settings, set Video renderer to Standard.
 - **App won't start from the AppImage**: try launching with `--no-sandbox`. Steam shortcut → Properties → Launch options.
 

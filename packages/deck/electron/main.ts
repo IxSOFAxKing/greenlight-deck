@@ -126,7 +126,7 @@ app.whenReady().then(() => {
     saveSettings: (s) => backend.saveSettings(s),
     listConsoles: () => backend.listConsoles(),
     wakeConsole: (id) => backend.wakeConsole(id),
-    listCloudTitles: () => backend.listCloudTitles(),
+    listCloudTitles: (refresh) => backend.listCloudTitles(!!refresh),
     cloudWaitTime: (id) => backend.cloudWaitTime(id),
     streamStart: (kind, id, res) => backend.streamStart(kind, id, res),
     streamStatus: (h) => backend.streamStatus(h),
@@ -173,6 +173,9 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Warm the cloud library cache in the background so the Cloud tab opens instantly.
+  setTimeout(() => backend.prefetchCloud(), 5000)
 
   // Quietly look for an update shortly after launch.
   setTimeout(() => {

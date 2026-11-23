@@ -91,6 +91,13 @@ export interface CloudTitle {
   features?: string[]
 }
 
+export interface CloudLibrary {
+  titles: CloudTitle[]
+  /** When this list was fetched from Xbox (ms since epoch). */
+  cachedAt: number
+  account?: string
+}
+
 export type StreamKind = 'home' | 'cloud'
 
 export interface StreamStartResult {
@@ -123,7 +130,8 @@ export interface DeckApi {
 
   listConsoles(): Promise<XboxConsole[]>
   wakeConsole(id: string): Promise<void>
-  listCloudTitles(): Promise<CloudTitle[]>
+  /** Cached library when available (fast); pass refresh to fetch it fresh. */
+  listCloudTitles(refresh?: boolean): Promise<CloudLibrary>
   /** Estimated xCloud queue time in seconds, or null if unknown. */
   cloudWaitTime(titleId: string): Promise<number | null>
 

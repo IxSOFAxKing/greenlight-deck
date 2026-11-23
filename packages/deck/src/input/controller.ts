@@ -44,6 +44,7 @@ export class Controller {
   private connectedListeners = new Set<(connected: boolean) => void>()
   private raf = 0
   private suppressUntilRelease = false
+  private suppressSince = 0
 
   start() {
     window.addEventListener('keydown', this.onKey)
@@ -79,12 +80,29 @@ export class Controller {
     this.dirHeld = {}
     // Ignore whatever is held during the switch (e.g. the A that started a stream).
     this.suppressUntilRelease = true
+    this.suppressSince = performance.now()
   }
 
-  /** Resolves once no gamepad button is pressed, so a menu press doesn't leak into the game. */
-  waitForRelease(): Promise<void> {
+  /**
+   * Resolves once no gamepad button is pressed, so a menu press doesn't leak
+   * into the game. Gives up after a moment in case some device reports a
+   * button that is stuck down.
+   */
+  waitForRelease(maxWaitMs = 600): Promise<void> {
     if (!this.anyPressed()) return Promise.resolve()
-    return new Promise(resolve => this.releaseWaiters.push(resolve))
+    return new Promise(resolve => {
+      let done = false
+      const finish = () => { if (!done) { done = true; resolve() } }
+      this.releaseWaiters.push(finish)
+      setTimeout(finish, maxWaitMs)
+    })
+  }
+
+  /** Short description of every connected gamepad, for the debug log. */
+  describePads(): string {
+    const pads = this.pads()
+    if (!pads.length) return 'no gamepads visible yet (press a button)'
+    return pads.map(p => `#${p.index} "${p.id}" ${p.mapping || 'no-mapping'}`).join(', ')
   }
 
   private emit(action: Action) {
@@ -140,6 +158,7 @@ export class Controller {
     const pressed = (i: number) => !!buttons[i]
     const justPressed = (i: number) => !!buttons[i] && !this.prevButtons[i]
 
+    if (this.suppressUntilRelease && now - this.suppressSince > 1500) this.suppressUntilRelease = false
     if (!this.anyPressed(buttons)) {
       this.suppressUntilRelease = false
       if (this.releaseWaiters.length) {

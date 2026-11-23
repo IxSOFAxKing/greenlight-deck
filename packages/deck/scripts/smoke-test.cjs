@@ -56,6 +56,8 @@ app.whenReady().then(async () => {
     check('cloud tab shows posters', (await js(`document.querySelectorAll('.poster').length`)) > 5)
     await key('X'); await wait(500)
     check('X opens search keyboard', await has('.osk'))
+    await wait(1200) // let the background library refresh land while the keyboard is open
+    check('refresh keeps focus in keyboard', /osk-key|^q$/.test(await js(`document.activeElement.className + ' ' + document.activeElement.innerText`)) )
     await js(`[...document.querySelectorAll('.osk-key')].find(b => b.innerText === 'n').click(); 1`)
     await js(`[...document.querySelectorAll('.osk-key')].find(b => b.innerText === 'e').click(); 1`)
     await wait(300)
@@ -63,6 +65,7 @@ app.whenReady().then(async () => {
     check('search filters results', count > 0 && count < 12, `${count} results`)
     await key('Escape'); await wait(500)
     check('B closes keyboard', !(await has('.osk')))
+    await wait(600) // focus returns to the grid after the keyboard closes
     await key('Return'); await wait(900)
     check('A opens title details', await has('.detail'))
     check('Play is focused', /Play/.test(await focused()))

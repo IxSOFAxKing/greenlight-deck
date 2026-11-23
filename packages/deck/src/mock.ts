@@ -45,7 +45,7 @@ export function createMockBridge(): DeckBridge {
     saveSettings: async (s: Settings) => (settings = s),
     listConsoles: async () => { await delay(400); return consoles },
     wakeConsole: async () => { await delay(300) },
-    listCloudTitles: async () => { await delay(500); return titles },
+    listCloudTitles: async (refresh?: boolean) => { await delay(refresh ? 1200 : 300); return { titles, cachedAt: Date.now() - (refresh ? 0 : 3 * 3600_000) } },
     cloudWaitTime: async (id: string) => { await delay(400); return Number(id.replace('MOCK', '')) % 3 === 0 ? 0 : 95 },
     streamStart: async () => { await delay(800); return { handle: 'mock', sessionPath: 'v5/sessions/home/mock' } },
     streamStatus: async () => { await delay(500); return { state: 'Failed', errorDetails: { message: 'Mock mode: streaming needs the Electron app.' } } },

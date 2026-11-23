@@ -6,7 +6,7 @@ import { Glyph, HintBar, Spinner } from '../components/ui'
 import { OnScreenKeyboard } from '../components/OnScreenKeyboard'
 import { useInputLayer } from '../input/layers'
 
-export interface CloudLoader { data?: CloudTitle[]; loading: boolean; error?: string; reload: () => void }
+export interface CloudLoader { data?: CloudTitle[]; loading: boolean; error?: string; reload: () => void; updating?: boolean; cachedAt?: number }
 
 type Filter = { kind: 'all' } | { kind: 'recent' } | { kind: 'genre'; genre: string }
 
@@ -43,7 +43,9 @@ export function CloudTab({ state, onPlay, controls }: {
     })
   }, [list, query, filter])
 
-  if (state.loading && !state.data) return <div className="center fill"><Spinner /></div>
+  if ((state.loading || state.updating) && !state.data) {
+    return <div className="center fill"><Spinner /><p className="muted">Loading cloud games… the first time takes a little while. After that, it opens instantly.</p></div>
+  }
   if (state.error) {
     return (
       <div className="empty">
@@ -78,6 +80,8 @@ export function CloudTab({ state, onPlay, controls }: {
       <div className="cloud-count muted small">
         {shown.length} {shown.length === 1 ? 'game' : 'games'}
         {query && <> matching “{query}” · <button className="linkish" onClick={() => setQuery('')} tabIndex={-1}>clear</button></>}
+        {state.updating ? <span className="updating"> · <span className="mini-spinner" aria-hidden="true" /> Updating…</span>
+          : state.cachedAt ? <span> · updated {ago(state.cachedAt)}</span> : null}
       </div>
 
       {shown.length === 0 ? (
@@ -151,4 +155,12 @@ function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: (
 
 function normalize(s: string) {
   return s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9&' ]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function ago(t: number) {
+  const m = Math.round((Date.now() - t) / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
+  const h = Math.round(m / 60)
+  return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`
 }

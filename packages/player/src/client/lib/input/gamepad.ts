@@ -229,54 +229,82 @@ export default class Gamepad {
         }
     }
 
-    detectActiveGamepad(){
-        if(this._physicalGamepadId < 0){
-            for(const gamepadBrowser in navigator.getGamepads()){
-                const gamepadIndex = navigator.getGamepads()[gamepadBrowser]?.index
-                if(gamepadIndex === undefined){
-                    continue
-                }
-
-                let gamepadFoundInHandler = false
-                for(const gamepad in this._player?._channels.control.getGamepadHandlers()){
-                    if(
-                        this._player?._channels.control.getGamepadHandlers()[gamepad] instanceof Gamepad &&
-                        (this._player?._channels.control.getGamepadHandlers()[gamepad] as Gamepad)._physicalGamepadId === navigator.getGamepads()[gamepadBrowser]?.index
-                    ) {
-                        console.log('[Gamepad] Active gamepad already detected:', gamepadIndex, (this._player?._channels.control.getGamepadHandlers()[gamepad] as Gamepad)._physicalGamepadId)
-                        gamepadFoundInHandler = true
-                        continue
-                    }
-                }
-
-                if(gamepadFoundInHandler === false){
-                    this._physicalGamepadId = gamepadIndex
-                    console.log('[Gamepad] Active gamepad detected:', this._physicalGamepadId)
-                }
+    /** Physical gamepad indexes already claimed by other Gamepad handlers on this player. */
+    private claimedIndexes(): Set<number> {
+        const claimed = new Set<number>()
+        const handlers = this._player?._channels.control.getGamepadHandlers() ?? {}
+        for(const key in handlers){
+            const h = handlers[key]
+            if(h instanceof Gamepad && h !== this && h._physicalGamepadId >= 0){
+                claimed.add(h._physicalGamepadId)
             }
-        } else {
-            console.log('[Gamepad] Physical gamepad already detected:', this._physicalGamepadId)
+        }
+        return claimed
+    }
+
+    /**
+     * Pick the physical gamepad the player is actually using. Some systems
+     * (e.g. Steam Deck) expose several pads, some of which never report input
+     * (a device Steam Input has grabbed). Prefer the most recently active,
+     * standard-mapped pad instead of whichever happens to be listed last.
+     */
+    private pickPhysicalGamepad(): number {
+        const claimed = this.claimedIndexes()
+        let best = -1
+        let bestScore = -Infinity
+        for(const pad of navigator.getGamepads()){
+            if(!pad || !pad.connected || claimed.has(pad.index)) continue
+            const active = pad.buttons.some(b => b.pressed || b.value > 0.1) || pad.axes.some(a => Math.abs(a) > 0.3)
+            const score = (active ? 1e15 : 0) + (pad.mapping === 'standard' ? 1e14 : 0) + (pad.timestamp || 0)
+            if(score > bestScore){
+                bestScore = score
+                best = pad.index
+            }
+        }
+        return best
+    }
+
+    detectActiveGamepad(){
+        const picked = this.pickPhysicalGamepad()
+        if(picked >= 0 && picked !== this._physicalGamepadId){
+            this._physicalGamepadId = picked
+            const pad = navigator.getGamepads()[picked]
+            console.log('[Gamepad] Using gamepad', picked, pad?.id, `(${navigator.getGamepads().filter(p => p).length} connected)`)
+        }
+    }
+
+    /** Switch to another pad if that's the one being used (checked a few times a second). */
+    private _lastSwitchCheck = 0
+    private maybeSwitchGamepad(){
+        const now = performance.now()
+        if(now - this._lastSwitchCheck < 250) return
+        this._lastSwitchCheck = now
+        const current = this.getGamepad(this._physicalGamepadId)
+        const claimed = this.claimedIndexes()
+        for(const pad of navigator.getGamepads()){
+            if(!pad || !pad.connected || pad.index === this._physicalGamepadId || claimed.has(pad.index)) continue
+            const active = pad.buttons.some(b => b.pressed) || pad.axes.some(a => Math.abs(a) > 0.5)
+            const newer = !current || (pad.timestamp || 0) > (current.timestamp || 0)
+            if(active && newer){
+                console.log('[Gamepad] Input is coming from gamepad', pad.index, pad.id, '- switching from', this._physicalGamepadId)
+                this._physicalGamepadId = pad.index
+                return
+            }
         }
     }
 
     onGamepadConnected(event:GamepadEvent){
-        if(this._physicalGamepadId < 0){
-            for(const gamepad in this._player?._channels.control.getGamepadHandlers()){
-                if(
-                    this._player?._channels.control.getGamepadHandlers()[gamepad] instanceof Gamepad &&
-                    (this._player?._channels.control.getGamepadHandlers()[gamepad] as Gamepad)._physicalGamepadId === event.gamepad.index
-                ) {
-                    return
-                }
-            }
-
+        console.log('[Gamepad] Connected:', event.gamepad.index, event.gamepad.id)
+        if(this._physicalGamepadId < 0 && !this.claimedIndexes().has(event.gamepad.index)){
             this._physicalGamepadId = event.gamepad.index
         }
     }
 
     onGamepadDisconnected(event:GamepadEvent){
+        console.log('[Gamepad] Disconnected:', event.gamepad.index, event.gamepad.id)
         if(event.gamepad.index === this._physicalGamepadId){
             this._physicalGamepadId = -1
+            this.detectActiveGamepad()
         }
     }
 
@@ -285,6 +313,10 @@ export default class Gamepad {
     }
 
     getGamepadState(){
+        if(this._options.enable_gamepad !== false){
+            if(this._physicalGamepadId < 0) this.detectActiveGamepad()
+            else this.maybeSwitchGamepad()
+        }
         const gamepad = this.getGamepad(this._physicalGamepadId)
         if((this._physicalGamepadId < 0 || gamepad === undefined || this._isFocused === false) && (this.hasOverrideButtons() === false)){
             return undefined
@@ -352,8 +384,9 @@ export default class Gamepad {
     }
 
     getGamepad(index = -1){
+        if(index < 0) return undefined
         const gamepad = navigator.getGamepads()[index]
-        if(gamepad !== null) {
+        if(gamepad) {
             return gamepad
         } else {
             return undefined

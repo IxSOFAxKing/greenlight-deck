@@ -6,7 +6,7 @@ import { appRouter, createCallerFactory } from '@greenlight/platform'
 import XboxApiClient from 'xbox-webapi'
 import { randomUUID } from 'node:crypto'
 import type {
-  AuthState, CloudTitle, DeviceCodePrompt, Profile, Resolution, Settings,
+  AuthState, CloudLibrary, CloudTitle, DeviceCodePrompt, Profile, Resolution, Settings,
   StreamKind, StreamStartResult, StreamStatus, XboxConsole,
 } from '../shared/api'
 import { defaultSettings } from '../shared/api'
@@ -34,6 +34,24 @@ interface Session {
 }
 
 const TOKEN_MAX_AGE_MS = 45 * 60 * 1000
+/** Cloud library cache counts as fresh for this long; older caches show instantly, then refresh. */
+const CLOUD_CACHE_FRESH_MS = 60 * 60 * 1000
+
+/** Ask Microsoft's image CDN for a right-sized image instead of the multi-megabyte original. */
+function sizedImage(u: string | undefined, w: number, h: number): string | undefined {
+  if (!u) return undefined
+  const url = u.startsWith('//') ? `https:${u}` : u
+  try {
+    const parsed = new URL(url)
+    if (/store-images\.s-microsoft\.com$|\.xboxlive\.com$/.test(parsed.hostname)) {
+      parsed.searchParams.set('w', String(w))
+      parsed.searchParams.set('h', String(h))
+      parsed.searchParams.set('q', '85')
+      return parsed.toString()
+    }
+  } catch { /* fall through */ }
+  return url
+}
 
 function normalizeUserToken(raw: any): UserToken {
   const t = raw?.data ?? raw
@@ -72,6 +90,7 @@ export class Backend {
   private profile: Profile | undefined
   private lastError: string | undefined
 
+  private cloudFetch: Promise<CloudLibrary> | undefined
   private signInAttempt = 0
   private sessions = new Map<string, Session>()
 
@@ -109,6 +128,7 @@ export class Backend {
         this.tokensFetchedAt = 0
         this.lastError = undefined
         this.onAuthChanged(await this.getAuthState())
+        this.prefetchCloud()
       } catch (err) {
         if (attempt !== this.signInAttempt) return
         this.lastError = 'Sign-in timed out or was cancelled. Try again.'
@@ -136,6 +156,7 @@ export class Backend {
     this.profile = undefined
     this.tokensFetchedAt = 0
     this.store.delete('userToken')
+    this.store.delete('cloudCache')
     this.onAuthChanged({ signedIn: false, hasCloud: false })
   }
 
@@ -237,18 +258,54 @@ export class Backend {
 
   // ---------- Cloud library ----------
 
-  async listCloudTitles(): Promise<CloudTitle[]> {
-    await this.ensureTokens()
-    if (!this.xCloud?.token) return []
-    const tok = { token: this.xCloud.token, market: this.xCloud.market, language: this.xCloud.language }
+  /**
+   * Cloud library. Returns the on-disk cache straight away when there is one
+   * (the UI then asks for a refresh in the background), otherwise fetches.
+   */
+  async listCloudTitles(refresh = false): Promise<CloudLibrary> {
+    // (Signing out deletes the cache, so it always belongs to the current account.)
+    const cached = this.store.get('cloudCache') as CloudLibrary | undefined
+    if (!refresh && cached?.titles?.length) return cached
+    if (!this.cloudFetch) {
+      this.cloudFetch = this.fetchCloudTitles().finally(() => { this.cloudFetch = undefined })
+    }
+    return this.cloudFetch
+  }
 
-    const [all, recent]: any[] = await Promise.all([
-      caller.gamepass_get_titles(tok).catch(() => undefined),
-      caller.gamepass_get_recent_titles(tok).catch(() => undefined),
+  /** Warm the cloud cache after sign-in so the Cloud tab opens instantly. */
+  async prefetchCloud() {
+    try {
+      await this.ensureTokens()
+      if (!this.xCloud?.token) return
+      const cached = this.store.get('cloudCache') as CloudLibrary | undefined
+      if (cached && Date.now() - cached.cachedAt < CLOUD_CACHE_FRESH_MS) return
+      await this.listCloudTitles(true)
+    } catch (err) {
+      console.warn('[cloud] prefetch failed:', errorMessage(err))
+    }
+  }
+
+  private async fetchCloudTitles(): Promise<CloudLibrary> {
+    const t0 = Date.now()
+    await this.ensureTokens()
+    if (!this.xCloud?.token) return { titles: [], cachedAt: Date.now() }
+    const tok = { token: this.xCloud.token, market: this.xCloud.market, language: this.xCloud.language }
+    // Use the region the token was issued for (Greenlight's helper is hard-wired to Western Europe).
+    const host = this.xCloud.host ?? 'https://weu.core.gssv-play-prod.xboxlive.com'
+    const gssv = async (path: string) => {
+      const res = await fetch(`${host}${path}`, { headers: { Authorization: `Bearer ${tok.token}`, 'X-Gssv-Client': 'XboxComBrowser' } })
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${path}`)
+      return res.json() as Promise<any>
+    }
+
+    const [all, recent] = await Promise.all([
+      gssv('/v2/titles').catch((e) => { console.warn('[cloud] titles failed:', errorMessage(e)); return undefined }),
+      gssv('/v2/titles/mru?mr=25').catch(() => undefined),
     ])
-    const allResults: any[] = all?.data?.results ?? []
-    const recentResults: any[] = recent?.data?.results ?? []
+    const allResults: any[] = all?.results ?? []
+    const recentResults: any[] = recent?.results ?? []
     const recentIds = new Set(recentResults.map(r => r.titleId))
+    const t1 = Date.now()
 
     const byTitle = new Map<string, CloudTitle>()
     for (const r of [...recentResults, ...allResults]) {
@@ -261,16 +318,21 @@ export class Backend {
       })
     }
 
+    // Look up names/art for all games at once (batches in parallel, not one after another).
     const productIds = [...byTitle.values()].map(t => t.productId).filter((p): p is string => !!p)
+    const batches: string[][] = []
+    for (let i = 0; i < productIds.length; i += 100) batches.push(productIds.slice(i, i + 100))
     const catalog: Record<string, any> = {}
-    for (let i = 0; i < productIds.length; i += 100) {
+    await Promise.all(batches.map(async (ids) => {
       try {
-        const res: any = await caller.gamepass_batch_productids({ token: tok, productIds: productIds.slice(i, i + 100) })
+        const res: any = await caller.gamepass_batch_productids({ token: tok, productIds: ids })
         Object.assign(catalog, res?.data?.Products ?? {})
-      } catch { /* catalog is best effort */ }
-    }
+      } catch (e) {
+        console.warn('[cloud] catalog batch failed:', errorMessage(e))
+      }
+    }))
+    const t2 = Date.now()
 
-    const url = (u?: string) => u ? (u.startsWith('//') ? `https:${u}` : u) : undefined
     const strings = (v: unknown): string[] => Array.isArray(v)
       ? v.map(x => typeof x === 'string' ? x : (x?.LocalizedName ?? x?.Name ?? '')).filter(Boolean)
       : typeof v === 'string' && v ? [v] : []
@@ -281,17 +343,19 @@ export class Backend {
         ...t,
         name: c?.ProductTitle ?? t.name,
         publisher: c?.PublisherName,
-        imageUrl: url(c?.Image_Tile?.URL ?? c?.Image_Poster?.URL),
-        posterUrl: url(c?.Image_Poster?.URL),
-        heroUrl: url(c?.Image_Hero?.URL ?? c?.Image_Poster?.URL),
+        imageUrl: sizedImage(c?.Image_Tile?.URL ?? c?.Image_Poster?.URL, 300, 300),
+        posterUrl: sizedImage(c?.Image_Poster?.URL, 360, 540),
+        heroUrl: sizedImage(c?.Image_Hero?.URL ?? c?.Image_Poster?.URL, 1600, 900),
         description: c?.ProductDescriptionShort ?? c?.ProductDescription,
         genres: [...new Set(strings(c?.Categories ?? c?.LocalizedCategories ?? c?.Category))].slice(0, 4),
         features: strings(c?.Attributes).slice(0, 6),
       }
-    })
+    }).sort((a, b) => Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
 
-    return titles.sort((a, b) =>
-      Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
+    const library: CloudLibrary = { titles, cachedAt: Date.now(), account: this.profile?.gamertag }
+    if (titles.length) this.store.set('cloudCache', library)
+    console.info(`[cloud] ${titles.length} titles from ${new URL(host).hostname}: list ${t1 - t0}ms, details ${t2 - t1}ms (${batches.length} batches), total ${Date.now() - t0}ms`)
+    return library
   }
 
   async cloudWaitTime(titleId: string): Promise<number | null> {
