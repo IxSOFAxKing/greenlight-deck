@@ -5,7 +5,8 @@ set -euo pipefail
 
 APPIMAGE="${1:-}"
 if [[ -z "$APPIMAGE" ]]; then
-  APPIMAGE="$(ls -t "$(dirname "$0")"/GreenlightDeck-*.AppImage "$HOME"/Downloads/GreenlightDeck-*.AppImage 2>/dev/null | head -n1 || true)"
+  # Case-insensitive: some browsers save it as .appimage
+  APPIMAGE="$(find "$(dirname "$0")" "$HOME/Downloads" -maxdepth 1 -iname 'GreenlightDeck*.appimage' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2- || true)"
 fi
 if [[ -z "$APPIMAGE" || ! -f "$APPIMAGE" ]]; then
   echo "Usage: bash install.sh /path/to/GreenlightDeck-x86_64.AppImage" >&2
