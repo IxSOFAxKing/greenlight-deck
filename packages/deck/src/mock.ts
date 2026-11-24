@@ -30,6 +30,11 @@ export function createMockBridge(): DeckBridge {
   const consoles: XboxConsole[] = [
     { id: 'F4000ABCDEF', name: 'Living Room', consoleType: 'XboxSeriesX', powerState: 'ConnectedStandby', consoleStreamingEnabled: true },
     { id: 'F4000BEEF01', name: 'Office', consoleType: 'XboxSeriesS', powerState: 'On', consoleStreamingEnabled: true },
+    ...(params.get('consoles') === 'all' ? [
+      { id: 'F4000ONEX01', name: "Kid's Room", consoleType: 'XboxOneX', powerState: 'ConnectedStandby', consoleStreamingEnabled: true },
+      { id: 'F4000ONES01', name: 'Basement', consoleType: 'XboxOneS', powerState: 'Off', consoleStreamingEnabled: true },
+      { id: 'F4000ONE001', name: 'Garage', consoleType: 'XboxOne', powerState: 'Off', consoleStreamingEnabled: true },
+    ] : []),
   ]
 
   const names = ['Starfall Odyssey', 'Turbo Circuit', 'Hollow Keep', 'Neon Drift', 'Skyward Isles', 'Iron Tide',
@@ -42,6 +47,7 @@ export function createMockBridge(): DeckBridge {
     titleId: `MOCK${i}`, name, recent: i < 4, publisher: 'Sample Studio', genres: genres[i],
     description: `${name} is a sample game used to preview the cloud library on your handheld.`,
     features: i % 2 ? ['Touch controls', 'Online multiplayer'] : ['4K Ultra HD'],
+    ...mockArt(name, i),
   }))
 
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -100,5 +106,35 @@ export function createMockBridge(): DeckBridge {
     onAuthChanged(cb) { authListeners.add(cb); return () => { authListeners.delete(cb) } },
     log: (level, source, message) => { console.debug(`[${source}] ${level}: ${message}`) },
     onUpdateStatus(cb) { updateListeners.add(cb); return () => { updateListeners.delete(cb) } },
+  }
+}
+
+// Sample artwork for preview mode. Title 0 has everything, 1 has no logo,
+// 2 has no art at all, 3 has a broken poster link (exercises the fallbacks).
+function svgUri(svg: string) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}
+
+function mockArt(name: string, i: number): Partial<CloudTitle> {
+  if (i === 2 || i >= 12) return {}
+  const hue = (i * 47) % 360
+  const poster = svgUri(`<svg xmlns="http://www.w3.org/2000/svg" width="360" height="540" viewBox="0 0 360 540">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue},55%,45%)"/><stop offset="1" stop-color="hsl(${(hue + 50) % 360},60%,12%)"/></linearGradient></defs>
+    <rect width="360" height="540" fill="url(#g)"/><circle cx="250" cy="170" r="110" fill="hsl(${(hue + 180) % 360},70%,60%)" opacity=".35"/>
+    <path d="M0 420 L120 300 L210 380 L300 290 L360 340 L360 540 L0 540 Z" fill="#000" opacity=".45"/>
+    <text x="24" y="500" font-family="sans-serif" font-weight="800" font-size="34" fill="#fff">${name}</text></svg>`)
+  const hero = svgUri(`<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+    <defs><linearGradient id="h" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue},50%,22%)"/><stop offset="1" stop-color="hsl(${(hue + 60) % 360},65%,40%)"/></linearGradient></defs>
+    <rect width="1600" height="900" fill="url(#h)"/><circle cx="1180" cy="330" r="260" fill="hsl(${(hue + 180) % 360},80%,65%)" opacity=".3"/>
+    <path d="M0 700 L380 420 L700 640 L1050 380 L1600 620 L1600 900 L0 900 Z" fill="#000" opacity=".4"/></svg>`)
+  const logo = svgUri(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240" viewBox="0 0 800 240">
+    <text x="0" y="150" font-family="Georgia, serif" font-style="italic" font-weight="700" font-size="112" fill="#fff" stroke="hsl(${hue},80%,60%)" stroke-width="4">${name.split(' ')[0].toUpperCase()}</text>
+    <text x="8" y="215" font-family="sans-serif" font-weight="700" font-size="44" letter-spacing="18" fill="hsl(${hue},85%,70%)">${(name.split(' ')[1] ?? '').toUpperCase()}</text></svg>`)
+  return {
+    posterUrl: i === 3 ? 'https://invalid.example/broken.jpg' : poster,
+    posterOriginalUrl: poster,
+    imageUrl: poster,
+    heroUrl: hero,
+    logoUrl: i === 1 ? undefined : logo,
   }
 }

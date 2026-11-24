@@ -105,7 +105,11 @@ export interface CloudTitle {
   publisher?: string
   recent?: boolean
   posterUrl?: string
+  /** Full-size poster, used if the resized one fails to load. */
+  posterOriginalUrl?: string
   heroUrl?: string
+  /** The game's title logo (transparent image), when the catalog has one. */
+  logoUrl?: string
   description?: string
   genres?: string[]
   features?: string[]
@@ -116,6 +120,7 @@ export interface CloudLibrary {
   /** When this list was fetched from Xbox (ms since epoch). */
   cachedAt: number
   account?: string
+  v?: number
 }
 
 export type StreamKind = 'home' | 'cloud'

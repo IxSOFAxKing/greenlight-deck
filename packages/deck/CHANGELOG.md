@@ -2,6 +2,13 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.4.1
+- Redesigned game details: full-screen background art, the game's logo as its title, and the box art at its proper shape (it was squashed thin)
+- Fewer missing covers: the app looks for art under more names, only asks for resized images where that's supported, and falls back to the full-size image if a resized one fails
+- Games with no art at all get a clean title card instead of two letters
+- Xbox One X, One S and the original Xbox One each get their own picture (they all showed a Series X before)
+- The debug log notes how many cloud games had no art, to help track down the rest
+
 ## 0.4.0
 - Multiple Xbox accounts: add as many as you like. Each stays signed in, so switching never needs a new sign-in
 - "Who's playing?" picker at launch when more than one account is saved (can be turned off in Settings)

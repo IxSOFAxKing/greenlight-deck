@@ -47,13 +47,20 @@ const TOKEN_MAX_AGE_MS = 45 * 60 * 1000
 /** Cloud library cache counts as fresh for this long; older caches show instantly, then refresh. */
 const CLOUD_CACHE_FRESH_MS = 60 * 60 * 1000
 
-/** Ask Microsoft's image CDN for a right-sized image instead of the multi-megabyte original. */
+/** Bump when the shape of cached titles changes, so old caches refresh. */
+const CLOUD_CACHE_VERSION = 2
+
+/**
+ * Ask Microsoft's store image CDN for a right-sized image instead of the
+ * multi-megabyte original. Only store-images supports these parameters; other
+ * hosts get the original URL (the UI also falls back to it if a resized one fails).
+ */
 function sizedImage(u: string | undefined, w: number, h: number): string | undefined {
   if (!u) return undefined
   const url = u.startsWith('//') ? `https:${u}` : u
   try {
     const parsed = new URL(url)
-    if (/store-images\.s-microsoft\.com$|\.xboxlive\.com$/.test(parsed.hostname)) {
+    if (parsed.hostname === 'store-images.s-microsoft.com') {
       parsed.searchParams.set('w', String(w))
       parsed.searchParams.set('h', String(h))
       parsed.searchParams.set('q', '85')
@@ -62,6 +69,37 @@ function sizedImage(u: string | undefined, w: number, h: number): string | undef
   } catch { /* fall through */ }
   return url
 }
+
+function absolute(u: string | undefined) {
+  return u ? (u.startsWith('//') ? `https:${u}` : u) : undefined
+}
+
+/**
+ * Catalog entries name their images in a few different ways (Image_Poster,
+ * Image_BoxArt, an Images array with ImagePurpose…). Try each purpose in order.
+ */
+function pickImage(c: any, purposes: string[]): string | undefined {
+  if (!c) return undefined
+  for (const purpose of purposes) {
+    const v = c[`Image_${purpose}`]
+    const u = typeof v === 'string' ? v : v?.URL ?? v?.Uri ?? v?.url
+    if (u) return absolute(u)
+  }
+  const arrays = [c.Images, c.LocalizedProperties?.[0]?.Images, c.images].filter(Array.isArray) as any[][]
+  for (const purpose of purposes) {
+    for (const arr of arrays) {
+      const m = arr.find(i => String(i?.ImagePurpose ?? i?.Purpose ?? i?.purpose ?? '').toLowerCase() === purpose.toLowerCase())
+      const u = m?.Uri ?? m?.URL ?? m?.url
+      if (u) return absolute(u)
+    }
+  }
+  return undefined
+}
+
+const POSTER_PURPOSES = ['Poster', 'BoxArt', 'Tile', 'FeaturePromotionalSquareArt', 'BrandedKeyArt']
+const SQUARE_PURPOSES = ['Tile', 'BoxArt', 'FeaturePromotionalSquareArt', 'Poster']
+const HERO_PURPOSES = ['SuperHeroArt', 'Hero', 'TitledHeroArt', 'BrandedKeyArt', 'Screenshot', 'Poster']
+const LOGO_PURPOSES = ['Logo', 'TitleLogo', 'ProductLogo']
 
 function normalizeUserToken(raw: any): UserToken {
   const t = raw?.data ?? raw
@@ -402,7 +440,10 @@ export class Backend {
   async listCloudTitles(refresh = false): Promise<CloudLibrary> {
     // (Signing out deletes the cache, so it always belongs to the current account.)
     const cached = this.store.get(this.cloudCacheKey()) as CloudLibrary | undefined
-    if (!refresh && cached?.titles?.length) return cached
+    if (!refresh && cached?.titles?.length) {
+      // Caches from older versions lack newer fields (logos…): show them, but as stale.
+      return cached.v === CLOUD_CACHE_VERSION ? cached : { ...cached, cachedAt: 0 }
+    }
     if (!this.cloudFetch) {
       this.cloudFetch = this.fetchCloudTitles().finally(() => { this.cloudFetch = undefined })
     }
@@ -415,7 +456,7 @@ export class Backend {
       await this.ensureTokens()
       if (!this.xCloud?.token) return
       const cached = this.store.get(this.cloudCacheKey()) as CloudLibrary | undefined
-      if (cached && Date.now() - cached.cachedAt < CLOUD_CACHE_FRESH_MS) return
+      if (cached && cached.v === CLOUD_CACHE_VERSION && Date.now() - cached.cachedAt < CLOUD_CACHE_FRESH_MS) return
       await this.listCloudTitles(true)
     } catch (err) {
       console.warn('[cloud] prefetch failed:', errorMessage(err))
@@ -479,22 +520,35 @@ export class Backend {
       ? v.map(x => typeof x === 'string' ? x : (x?.LocalizedName ?? x?.Name ?? '')).filter(Boolean)
       : typeof v === 'string' && v ? [v] : []
 
+    let missingArt = 0
+    let sampleKeys: string | undefined
     const titles = [...byTitle.values()].map(t => {
       const c = t.productId ? catalog[t.productId] : undefined
+      const poster = pickImage(c, POSTER_PURPOSES)
+      const square = pickImage(c, SQUARE_PURPOSES)
+      const hero = pickImage(c, HERO_PURPOSES)
+      const logo = pickImage(c, LOGO_PURPOSES)
+      if (!poster && !square) {
+        missingArt++
+        if (!sampleKeys) sampleKeys = c ? `${t.name}: ${Object.keys(c).filter(k => /image/i.test(k)).join(', ') || 'no image fields'}` : `${t.name}: no catalog entry`
+      }
       return {
         ...t,
         name: c?.ProductTitle ?? t.name,
         publisher: c?.PublisherName,
-        imageUrl: sizedImage(c?.Image_Tile?.URL ?? c?.Image_Poster?.URL, 300, 300),
-        posterUrl: sizedImage(c?.Image_Poster?.URL, 360, 540),
-        heroUrl: sizedImage(c?.Image_Hero?.URL ?? c?.Image_Poster?.URL, 1600, 900),
+        imageUrl: sizedImage(square ?? poster, 300, 300),
+        posterUrl: sizedImage(poster ?? square, 360, 540),
+        posterOriginalUrl: poster ?? square,
+        heroUrl: sizedImage(hero, 1600, 900),
+        logoUrl: sizedImage(logo, 800, 400),
         description: c?.ProductDescriptionShort ?? c?.ProductDescription,
         genres: [...new Set(strings(c?.Categories ?? c?.LocalizedCategories ?? c?.Category))].slice(0, 4),
         features: strings(c?.Attributes).slice(0, 6),
       }
     }).sort((a, b) => Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
+    if (missingArt) console.info(`[cloud] ${missingArt} title(s) without box art. Example: ${sampleKeys}`)
 
-    const library: CloudLibrary = { titles, cachedAt: Date.now(), account: this.profile?.gamertag }
+    const library: CloudLibrary = { titles, cachedAt: Date.now(), account: this.profile?.gamertag, v: CLOUD_CACHE_VERSION }
     if (titles.length && this.activeId === forAccount) this.store.set(this.cloudCacheKey(), library)
     console.info(`[cloud] ${titles.length} titles from ${new URL(host).hostname}: list ${t1 - t0}ms, details ${t2 - t1}ms (${batches.length} batches), total ${Date.now() - t0}ms`)
     return library

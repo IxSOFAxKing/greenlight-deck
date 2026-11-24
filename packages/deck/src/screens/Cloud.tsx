@@ -93,9 +93,7 @@ export function CloudTab({ state, onPlay, controls }: {
         <div className="poster-grid">
           {shown.map((t, i) => (
             <button key={t.titleId} className="poster" data-nav data-autofocus={i === 0 || undefined} onClick={() => setDetail(t)} title={t.name}>
-              {(t.posterUrl ?? t.imageUrl)
-                ? <img src={t.posterUrl ?? t.imageUrl} alt="" loading="lazy" decoding="async" />
-                : <div className="tile-fallback">{t.name.slice(0, 2)}</div>}
+              <PosterArt title={t} lazy />
               <span className="poster-name">{t.name}</span>
               {t.recent && <span className="poster-badge">Recent</span>}
             </button>
@@ -112,6 +110,8 @@ export function CloudTab({ state, onPlay, controls }: {
 function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: () => void; onPlay: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [wait, setWait] = useState<number | null | undefined>(undefined)
+  const [logoFailed, setLogoFailed] = useState(false)
+  const [heroFailed, setHeroFailed] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -128,29 +128,69 @@ function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: (
     : wait === null ? 'Wait time unavailable'
     : wait < 30 ? 'Ready now: no wait'
     : `About ${Math.max(1, Math.round(wait / 60))} min wait`
+  const meta = [title.publisher, ...(title.genres ?? [])].filter(Boolean).join('  ·  ')
+  const backdrop = !heroFailed && title.heroUrl ? title.heroUrl : undefined
+  const blurred = !backdrop ? (title.posterUrl ?? title.imageUrl) : undefined
 
   return (
     <div className="modal detail-modal" ref={ref} role="dialog" aria-label={title.name}>
-      <div className="detail" style={title.heroUrl ? { backgroundImage: `linear-gradient(90deg, rgba(11,13,16,.97) 0%, rgba(11,13,16,.85) 45%, rgba(11,13,16,.35) 100%), url("${title.heroUrl}")` } : undefined}>
-        <div className="detail-art">
-          {(title.posterUrl ?? title.imageUrl) ? <img src={title.posterUrl ?? title.imageUrl} alt="" /> : <div className="tile-fallback">{title.name.slice(0, 2)}</div>}
-        </div>
-        <div className="detail-info">
-          <h2>{title.name}</h2>
-          {title.publisher && <div className="muted">{title.publisher}</div>}
-          {!!title.genres?.length && <div className="pill-row">{title.genres.map(g => <span key={g} className="pill">{g}</span>)}</div>}
-          {title.description && <p className="detail-desc">{title.description}</p>}
-          {!!title.features?.length && <div className="pill-row">{title.features.map(f => <span key={f} className="pill subtle">{f}</span>)}</div>}
-          <div className={`wait ${wait !== undefined && wait !== null && wait < 30 ? 'ready' : ''}`}>{waitText}</div>
-          <div className="row">
-            <button className="btn btn-primary btn-xl" data-nav data-autofocus onClick={onPlay}>Play</button>
-            <button className="btn" data-nav onClick={onClose}>Back</button>
+      <div className="detail">
+        {backdrop && <img className="detail-bg" src={backdrop} alt="" onError={() => setHeroFailed(true)} />}
+        {blurred && <img className="detail-bg blurred" src={blurred} alt="" />}
+        <div className="detail-scrim" />
+
+        <div className="detail-content">
+          <div className="detail-art"><PosterArt title={title} /></div>
+          <div className="detail-info">
+            {title.logoUrl && !logoFailed
+              ? <img className="detail-logo" src={title.logoUrl} alt={title.name} onError={() => setLogoFailed(true)} />
+              : <h2 className="detail-title">{title.name}</h2>}
+            {meta && <div className="detail-meta">{meta}</div>}
+            {title.description && <p className="detail-desc">{title.description}</p>}
+            {!!title.features?.length && <div className="pill-row">{title.features.map(f => <span key={f} className="pill subtle">{f}</span>)}</div>}
+            <div className={`wait ${wait !== undefined && wait !== null && wait < 30 ? 'ready' : ''}`}>
+              <span className="wait-dot" aria-hidden="true" />{waitText}
+            </div>
+            <div className="row">
+              <button className="btn btn-primary btn-xl play-btn" data-nav data-autofocus onClick={onPlay}>
+                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor" /></svg>
+                Play
+              </button>
+              <button className="btn" data-nav onClick={onClose}>Back</button>
+            </div>
           </div>
         </div>
       </div>
       <HintBar hints={[{ glyph: 'A', label: 'Select' }, { glyph: 'B', label: 'Back', onClick: onClose }]} />
     </div>
   )
+}
+
+/**
+ * Box art with fallbacks: the resized image, then the full-size original, then
+ * a designed card with the game's name, so a missing image never looks broken.
+ */
+function PosterArt({ title, lazy }: { title: CloudTitle; lazy?: boolean }) {
+  const sources = [title.posterUrl, title.posterOriginalUrl, title.imageUrl].filter((u, i, a): u is string => !!u && a.indexOf(u) === i)
+  const [index, setIndex] = useState(0)
+  useEffect(() => setIndex(0), [title.titleId])
+  const src = sources[index]
+  if (!src) {
+    return (
+      <div className="art-fallback" style={{ background: fallbackGradient(title.name) }}>
+        <span>{title.name}</span>
+      </div>
+    )
+  }
+  return <img src={src} alt="" loading={lazy ? 'lazy' : undefined} decoding="async" onError={() => setIndex(i => i + 1)} />
+}
+
+/** A stable, muted gradient per game so placeholder cards don't all look alike. */
+function fallbackGradient(name: string) {
+  let h = 0
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  const hue = h % 360
+  return `linear-gradient(160deg, hsl(${hue} 32% 26%), hsl(${(hue + 40) % 360} 28% 12%))`
 }
 
 function normalize(s: string) {
