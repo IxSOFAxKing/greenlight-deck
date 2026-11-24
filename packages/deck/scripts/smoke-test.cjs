@@ -17,7 +17,7 @@ function check(name, ok, detail) {
 }
 
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1280, height: 800, show: false, webPreferences: { backgroundThrottling: false } })
+  const win = new BrowserWindow({ width: 1280, height: 800, show: true, webPreferences: { backgroundThrottling: false } }) // visible: hidden windows throttle timers and animation frames
   win.webContents.on('console-message', (event, level, message) => {
     const lvl = event?.level ?? level
     const msg = event?.message ?? message
