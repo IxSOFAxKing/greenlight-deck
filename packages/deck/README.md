@@ -5,6 +5,7 @@ A controller-first, handheld-friendly frontend for streaming your Xbox (and Xbox
 - **My Xbox**: lists your consoles, shows whether each one is on or asleep, and can wake one up before streaming
 - **Cloud**: your Xbox Cloud Gaming library, with search, genre filters, game details and estimated wait times. Only shown if your account has cloud gaming
 - **Settings**: 720p/1080p, max bitrate, video profile, fit or stretch the picture, performance stats, vibration, auto-reconnect, updates, a debug log, and signing out
+- **Profiles**: keep several Xbox accounts signed in and switch between them with the View button
 - **Auto-reconnect**: if Wi-Fi drops mid-game, the app rejoins your Xbox on its own
 - Sign in with a QR code / short code on your phone. You never type a password on the Deck
 - Every screen works with the D-pad or stick, A/B, and LB/RB. Touch and mouse work too
@@ -35,6 +36,7 @@ Version 0.2.0 and later update themselves. Go to **Settings → Check for update
 | Menus | D-pad / left stick | Move |
 | | A / B | Select / Back |
 | | LB / RB | Switch tabs |
+| | View (on Home) | Switch profile |
 | | X (on a console) | Wake it up |
 | | X (in Cloud) | Search |
 | | Y | Refresh |

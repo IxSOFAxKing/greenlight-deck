@@ -14,8 +14,8 @@ interface Row<K extends keyof Settings> {
 }
 
 const rows: Row<any>[] = [
-  { key: 'resolution', label: 'Stream quality', help: '720p uses less bandwidth and matches the Deck screen. 1080p looks sharper on an external display.',
-    options: [{ value: 720, label: '720p' }, { value: 1080, label: '1080p' }] },
+  { key: 'resolution', label: 'Stream quality', help: '720p uses the least data. "Up to 1440p" asks for PC quality: your Xbox sends up to 1440p, which looks sharper scaled down to the Deck screen but needs strong Wi-Fi.',
+    options: [{ value: 720, label: '720p (less data)' }, { value: 1080, label: 'Up to 1440p (sharpest)' }] },
   { key: 'maxBitrateMbps', label: 'Max bitrate', help: 'Limit how much data the stream uses. Lower it if the picture stutters on busy Wi-Fi; Auto lets the Xbox pick.',
     options: [{ value: 0, label: 'Auto' }, { value: 5, label: '5 Mbps' }, { value: 10, label: '10 Mbps' }, { value: 15, label: '15 Mbps' }, { value: 20, label: '20 Mbps' }, { value: 30, label: '30 Mbps' }] },
   { key: 'codecProfile', label: 'Video profile', help: 'High looks sharpest. Low latency is lighter to decode and can feel snappier. Auto tries High first.',
@@ -32,11 +32,13 @@ const rows: Row<any>[] = [
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
   { key: 'autoWake', label: 'Wake console automatically', help: 'Send a wake signal to a sleeping Xbox before connecting.',
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
+  { key: 'askProfileAtLaunch', label: 'Ask who\'s playing at launch', help: 'When more than one Xbox account is saved, show the profile picker each time the app starts.',
+    options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
   { key: 'autoUpdateCheck', label: 'Check for updates on launch', help: 'Look for a new version on GitHub each time the app starts. Nothing downloads until you choose to.',
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
 ]
 
-export function SettingsTab() {
+export function SettingsTab({ onProfiles, gamertag }: { onProfiles: () => void; gamertag?: string }) {
   const { settings, update } = useSettings()
   const [info, setInfo] = useState<{ version: string; steamDeck: boolean } | undefined>()
   const [focusedHelp, setFocusedHelp] = useState<string>(rows[0].help)
@@ -66,7 +68,8 @@ export function SettingsTab() {
         <UpdateRow onFocusHelp={setFocusedHelp} />
         <div className="settings-actions">
           <button className="btn" data-nav onFocus={() => setFocusedHelp('See what the app has been doing. Copy or save it when something goes wrong so it can be fixed.')} onClick={() => setShowLogs(true)}>Debug log</button>
-          <button className="btn" data-nav onFocus={() => setFocusedHelp('Sign out of your Microsoft account on this device.')} onClick={() => call('signOut')}>Sign out</button>
+          <button className="btn" data-nav onFocus={() => setFocusedHelp('Switch between saved Xbox accounts, add another one, or remove one. Shortcut: the View button on the home screen.')} onClick={onProfiles}>Profiles</button>
+          <button className="btn" data-nav onFocus={() => setFocusedHelp(`Sign ${gamertag ?? 'this account'} out and remove it from this device. Other saved accounts stay signed in.`)} onClick={() => call('signOut')}>Sign out{gamertag ? ` ${gamertag}` : ''}</button>
           <button className="btn btn-ghost" data-nav onFocus={() => setFocusedHelp('Close Greenlight Deck.')} onClick={() => call('quit')}>Quit app</button>
         </div>
       </div>

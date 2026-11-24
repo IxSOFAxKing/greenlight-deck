@@ -2,6 +2,15 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.4.0
+- Multiple Xbox accounts: add as many as you like. Each stays signed in, so switching never needs a new sign-in
+- "Who's playing?" picker at launch when more than one account is saved (can be turned off in Settings)
+- Switch profiles from the home screen with the View button, or tap your gamertag in the top right
+- Remove an account from the picker (Y). Sign out now only removes the current account
+- Your existing sign-in carries over automatically
+- Clearer stream quality options: "720p (less data)" and "Up to 1440p (sharpest)". The second asks your Xbox for PC quality, which is up to 1440p on a Series X
+- If the Deck is offline at launch, the app says so and offers Try again, instead of saying your sign-in expired
+
 ## 0.3.4
 - Smooth fast scrolling: holding a direction no longer makes the list lag behind the highlight and catch up when you let go
 - Scrolling back up to the top shows the whole top of the page, so the search bar and categories are no longer cut off

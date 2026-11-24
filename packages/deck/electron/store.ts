@@ -7,7 +7,7 @@ import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const SECRET_KEYS = new Set(['userToken'])
+const SECRET_KEYS = new Set(['userToken', 'accounts'])
 
 export class Store {
   private file: string

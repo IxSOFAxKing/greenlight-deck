@@ -15,6 +15,8 @@ export interface Settings {
   autoWake: boolean
   /** Look for a new version on GitHub when the app starts. */
   autoUpdateCheck: boolean
+  /** With several accounts saved, ask who's playing when the app starts. */
+  askProfileAtLaunch: boolean
   /** Cap on video bitrate in Mbps; 0 lets the Xbox decide. */
   maxBitrateMbps: number
   /** Preferred H.264 profile for the stream. */
@@ -31,6 +33,7 @@ export const defaultSettings: Settings = {
   vibration: true,
   autoWake: true,
   autoUpdateCheck: true,
+  askProfileAtLaunch: true,
   maxBitrateMbps: 0,
   codecProfile: 'auto',
   autoReconnect: true,
@@ -55,11 +58,28 @@ export interface Profile {
   gamerscore?: string
 }
 
+export interface AccountSummary {
+  id: string
+  gamertag: string
+  avatarUrl?: string
+  gamerscore?: string
+  active: boolean
+}
+
 export interface AuthState {
   signedIn: boolean
   profile?: Profile
   hasCloud: boolean
   error?: string
+  /** Every account saved on this device. */
+  accounts?: AccountSummary[]
+  activeAccountId?: string
+  /** The active account's saved sign-in no longer works. */
+  expired?: boolean
+  /** Couldn't reach Microsoft (offline); the saved sign-in is kept. */
+  offline?: boolean
+  /** A sign-in attempt (e.g. adding an account) failed or timed out. */
+  signInError?: string
 }
 
 export interface DeviceCodePrompt {
@@ -124,6 +144,8 @@ export interface DeckApi {
   startSignIn(): Promise<DeviceCodePrompt>
   cancelSignIn(): Promise<void>
   signOut(): Promise<void>
+  switchAccount(id: string): Promise<AuthState>
+  removeAccount(id: string): Promise<AuthState>
 
   getSettings(): Promise<Settings>
   saveSettings(settings: Settings): Promise<Settings>

@@ -6,7 +6,7 @@ import { appRouter, createCallerFactory } from '@greenlight/platform'
 import XboxApiClient from 'xbox-webapi'
 import { randomUUID } from 'node:crypto'
 import type {
-  AuthState, CloudLibrary, CloudTitle, DeviceCodePrompt, Profile, Resolution, Settings,
+  AccountSummary, AuthState, CloudLibrary, CloudTitle, DeviceCodePrompt, Profile, Resolution, Settings,
   StreamKind, StreamStartResult, StreamStatus, XboxConsole,
 } from '../shared/api'
 import { defaultSettings } from '../shared/api'
@@ -25,6 +25,16 @@ interface UserToken {
 }
 
 interface StreamToken { token: string; market: string; language: string; host?: string }
+
+interface StoredAccount {
+  /** Xbox user id once known; "pending-…" until the first token refresh. */
+  id: string
+  gamertag?: string
+  avatarUrl?: string
+  gamerscore?: string
+  userToken: UserToken
+  addedAt: number
+}
 
 interface Session {
   kind: StreamKind
@@ -81,10 +91,14 @@ export class Backend {
   private store: Store
   private onAuthChanged: (s: AuthState) => void
 
-  private userToken: UserToken | undefined
+  // Saved accounts (each with its own sign-in token) and which one is active.
+  private accounts: StoredAccount[] = []
+  private activeId: string | undefined
+
   private webToken: { uhs: string; token: string } | undefined
   private xHome: StreamToken | undefined
   private xCloud: StreamToken | undefined
+  private xuid: string | undefined
   private tokensFetchedAt = 0
   private refreshing: Promise<void> | undefined
   private profile: Profile | undefined
@@ -97,42 +111,151 @@ export class Backend {
   constructor(store: Store, onAuthChanged: (s: AuthState) => void) {
     this.store = store
     this.onAuthChanged = onAuthChanged
-    const saved = store.get('userToken') as UserToken | undefined
-    if (saved?.refresh_token) this.userToken = saved
+
+    const saved = store.get('accounts') as { list?: StoredAccount[]; activeId?: string } | undefined
+    this.accounts = (saved?.list ?? []).filter(a => a?.userToken?.refresh_token)
+    this.activeId = saved?.activeId
+
+    // Versions before 0.4 kept a single token: carry it over as the first account.
+    const legacy = store.get('userToken') as UserToken | undefined
+    if (legacy?.refresh_token && this.accounts.length === 0) {
+      this.accounts.push({ id: `pending-${randomUUID()}`, userToken: legacy, addedAt: Date.now() })
+      this.activeId = this.accounts[0].id
+      this.saveAccounts()
+      const legacyCache = store.get('cloudCache')
+      if (legacyCache) store.set(`cloudCache:${this.activeId}`, legacyCache)
+    }
+    if (legacy) store.delete('userToken')
+    store.delete('cloudCache')
+
+    if (!this.accounts.some(a => a.id === this.activeId)) this.activeId = this.accounts[0]?.id
+    const active = this.active()
+    if (active?.gamertag) this.profile = { gamertag: active.gamertag, avatarUrl: active.avatarUrl, gamerscore: active.gamerscore }
+  }
+
+  // ---------- Accounts ----------
+
+  private active(): StoredAccount | undefined {
+    return this.accounts.find(a => a.id === this.activeId)
+  }
+
+  private saveAccounts() {
+    this.store.set('accounts', { list: this.accounts, activeId: this.activeId })
+  }
+
+  private summaries(): AccountSummary[] {
+    return this.accounts.map(a => ({
+      id: a.id,
+      gamertag: a.gamertag ?? 'Xbox account',
+      avatarUrl: a.avatarUrl,
+      gamerscore: a.gamerscore,
+      active: a.id === this.activeId,
+    }))
+  }
+
+  /** Forget the tokens of the account we were using (another one becomes active). */
+  private resetSession() {
+    this.signInAttempt++
+    this.webToken = undefined
+    this.xHome = undefined
+    this.xCloud = undefined
+    this.xuid = undefined
+    this.tokensFetchedAt = 0
+    this.refreshing = undefined
+    this.cloudFetch = undefined
+    const a = this.active()
+    this.profile = a?.gamertag ? { gamertag: a.gamertag, avatarUrl: a.avatarUrl, gamerscore: a.gamerscore } : undefined
+  }
+
+  async switchAccount(id: string): Promise<AuthState> {
+    if (!this.accounts.some(a => a.id === id)) throw new Error('That account is no longer saved.')
+    if (id !== this.activeId) {
+      await this.stopAllStreams()
+      this.activeId = id
+      this.saveAccounts()
+      this.resetSession()
+      console.info(`[accounts] switched to ${this.active()?.gamertag ?? id}`)
+    }
+    const state = await this.getAuthState()
+    this.onAuthChanged(state)
+    if (state.signedIn) this.prefetchCloud()
+    return state
+  }
+
+  async removeAccount(id: string): Promise<AuthState> {
+    const wasActive = id === this.activeId
+    const removed = this.accounts.find(a => a.id === id)
+    this.accounts = this.accounts.filter(a => a.id !== id)
+    this.store.delete(`cloudCache:${id}`)
+    if (wasActive) {
+      await this.stopAllStreams()
+      this.activeId = this.accounts[0]?.id
+      this.resetSession()
+    }
+    this.saveAccounts()
+    console.info(`[accounts] removed ${removed?.gamertag ?? id}`)
+    const state = await this.getAuthState()
+    this.onAuthChanged(state)
+    return state
   }
 
   // ---------- Auth ----------
 
   async getAuthState(): Promise<AuthState> {
-    if (!this.userToken) return { signedIn: false, hasCloud: false, error: this.lastError }
+    const accounts = this.summaries()
+    if (!this.active()) return { signedIn: false, hasCloud: false, error: this.lastError, accounts }
     try {
       await this.ensureTokens()
-      return { signedIn: true, profile: this.profile, hasCloud: !!this.xCloud?.token }
+      return { signedIn: true, profile: this.profile, hasCloud: !!this.xCloud?.token, accounts: this.summaries(), activeAccountId: this.activeId }
     } catch (err) {
       this.lastError = errorMessage(err)
-      return { signedIn: false, hasCloud: false, error: 'Your session expired. Please sign in again.' }
+      console.warn('[accounts] token refresh failed:', this.lastError)
+      if (/ENOTFOUND|EAI_AGAIN|ENETUNREACH|ECONNREFUSED|ETIMEDOUT|ECONNRESET|fetch failed|network/i.test(this.lastError)) {
+        return {
+          signedIn: false, hasCloud: false, accounts, activeAccountId: this.activeId, offline: true,
+          error: "Can't reach Xbox services. Check that your Deck is online, then try again.",
+        }
+      }
+      return {
+        signedIn: false, hasCloud: false, accounts, activeAccountId: this.activeId, expired: true,
+        error: `${this.active()?.gamertag ?? 'This account'}'s sign-in expired. Sign in again, or pick another profile.`,
+      }
     }
   }
 
+  /** Start a device-code sign-in. Signing in to a new account adds it; an existing one is updated. */
   async startSignIn(): Promise<DeviceCodePrompt> {
     const attempt = ++this.signInAttempt
     const flow: any = await caller.auth_msal_start()
 
     // Poll in the background; the UI is told via onAuthChanged.
     ;(async () => {
+      const previousActive = this.activeId
       try {
         const token = await caller.auth_msal_verify(flow.device_code)
         if (attempt !== this.signInAttempt) return
-        this.userToken = normalizeUserToken(token)
-        this.store.set('userToken', this.userToken)
-        this.tokensFetchedAt = 0
+        const pending: StoredAccount = { id: `pending-${randomUUID()}`, userToken: normalizeUserToken(token), addedAt: Date.now() }
+        this.accounts.push(pending)
+        this.activeId = pending.id
+        this.resetSession()
+        this.signInAttempt = attempt // resetSession bumps it; keep this sign-in current
         this.lastError = undefined
+        try {
+          await this.ensureTokens() // learns the Xbox user id and merges duplicates
+        } catch (err) {
+          this.accounts = this.accounts.filter(a => a.id !== pending.id)
+          this.activeId = previousActive
+          this.resetSession()
+          throw err
+        }
+        this.saveAccounts()
         this.onAuthChanged(await this.getAuthState())
         this.prefetchCloud()
       } catch (err) {
         if (attempt !== this.signInAttempt) return
+        console.warn('[accounts] sign-in failed:', errorMessage(err))
         this.lastError = 'Sign-in timed out or was cancelled. Try again.'
-        this.onAuthChanged({ signedIn: false, hasCloud: false, error: this.lastError })
+        this.onAuthChanged({ ...(await this.getAuthState()), signInError: this.lastError })
       }
     })()
 
@@ -147,46 +270,43 @@ export class Backend {
     this.signInAttempt++
   }
 
+  /** Sign out = remove the active account from this device. */
   async signOut() {
-    this.signInAttempt++
-    this.userToken = undefined
-    this.webToken = undefined
-    this.xHome = undefined
-    this.xCloud = undefined
-    this.profile = undefined
-    this.tokensFetchedAt = 0
-    this.store.delete('userToken')
-    this.store.delete('cloudCache')
-    this.onAuthChanged({ signedIn: false, hasCloud: false })
+    if (this.activeId) await this.removeAccount(this.activeId)
   }
 
   private ensureTokens(force = false): Promise<void> {
-    if (!this.userToken) return Promise.reject(new Error('Not signed in'))
+    if (!this.active()) return Promise.reject(new Error('Not signed in'))
     if (!force && this.webToken && this.xHome && Date.now() - this.tokensFetchedAt < TOKEN_MAX_AGE_MS) {
       return Promise.resolve()
     }
     if (!this.refreshing) {
-      this.refreshing = this.refreshTokens().finally(() => { this.refreshing = undefined })
+      const forAccount = this.activeId
+      const run = this.refreshTokens(forAccount!).finally(() => { if (this.refreshing === run) this.refreshing = undefined })
+      this.refreshing = run
     }
     return this.refreshing
   }
 
-  private async refreshTokens() {
+  private async refreshTokens(accountId: string) {
+    const account = this.accounts.find(a => a.id === accountId)
+    if (!account) throw new Error('Not signed in')
+
     // Always refresh the MSAL user token first so access tokens are fresh.
-    const refreshed = normalizeUserToken(await caller.auth_msal_refresh(this.userToken!))
-    if (!refreshed.refresh_token) refreshed.refresh_token = this.userToken!.refresh_token
-    this.userToken = refreshed
-    this.store.set('userToken', refreshed)
+    const refreshed = normalizeUserToken(await caller.auth_msal_refresh(account.userToken))
+    if (!refreshed.refresh_token) refreshed.refresh_token = account.userToken.refresh_token
+    account.userToken = refreshed
 
     const [web, streaming]: any[] = await Promise.all([
       caller.auth_get_webtoken(refreshed),
       caller.auth_get_streamingtokens(refreshed),
     ])
+    // The user switched accounts while this was running: drop the result.
+    if (this.activeId !== accountId) { this.saveAccounts(); return }
 
-    this.webToken = {
-      uhs: web.data?.DisplayClaims?.xui?.[0]?.uhs ?? '',
-      token: web.data?.Token ?? '',
-    }
+    const xui = web.data?.DisplayClaims?.xui?.[0] ?? {}
+    this.webToken = { uhs: xui.uhs ?? '', token: web.data?.Token ?? '' }
+    this.xuid = xui.xid
     this.xHome = this.toStreamToken(streaming.xHomeToken)
     this.xCloud = streaming.xCloudToken ? this.toStreamToken(streaming.xCloudToken) : undefined
     this.tokensFetchedAt = Date.now()
@@ -194,8 +314,25 @@ export class Backend {
     try {
       this.profile = await this.fetchProfile()
     } catch {
-      this.profile = undefined
+      this.profile = this.profile ?? (xui.gtg ? { gamertag: xui.gtg } : undefined)
     }
+
+    account.gamertag = this.profile?.gamertag ?? xui.gtg ?? account.gamertag
+    account.avatarUrl = this.profile?.avatarUrl ?? account.avatarUrl
+    account.gamerscore = this.profile?.gamerscore ?? account.gamerscore
+
+    // Key the account by its Xbox user id. Signing in to an account that is
+    // already saved replaces the old entry instead of adding a duplicate.
+    if (this.xuid && account.id !== this.xuid) {
+      const oldId = account.id
+      const duplicate = this.accounts.find(a => a.id === this.xuid)
+      if (duplicate) this.accounts = this.accounts.filter(a => a !== duplicate)
+      account.id = this.xuid
+      if (this.activeId === oldId) this.activeId = account.id
+      const cache = this.store.get(`cloudCache:${oldId}`)
+      if (cache) { this.store.set(`cloudCache:${account.id}`, cache); this.store.delete(`cloudCache:${oldId}`) }
+    }
+    this.saveAccounts()
   }
 
   private toStreamToken(t: any): StreamToken {
@@ -264,7 +401,7 @@ export class Backend {
    */
   async listCloudTitles(refresh = false): Promise<CloudLibrary> {
     // (Signing out deletes the cache, so it always belongs to the current account.)
-    const cached = this.store.get('cloudCache') as CloudLibrary | undefined
+    const cached = this.store.get(this.cloudCacheKey()) as CloudLibrary | undefined
     if (!refresh && cached?.titles?.length) return cached
     if (!this.cloudFetch) {
       this.cloudFetch = this.fetchCloudTitles().finally(() => { this.cloudFetch = undefined })
@@ -277,7 +414,7 @@ export class Backend {
     try {
       await this.ensureTokens()
       if (!this.xCloud?.token) return
-      const cached = this.store.get('cloudCache') as CloudLibrary | undefined
+      const cached = this.store.get(this.cloudCacheKey()) as CloudLibrary | undefined
       if (cached && Date.now() - cached.cachedAt < CLOUD_CACHE_FRESH_MS) return
       await this.listCloudTitles(true)
     } catch (err) {
@@ -285,8 +422,13 @@ export class Backend {
     }
   }
 
+  private cloudCacheKey() {
+    return `cloudCache:${this.activeId ?? 'none'}`
+  }
+
   private async fetchCloudTitles(): Promise<CloudLibrary> {
     const t0 = Date.now()
+    const forAccount = this.activeId
     await this.ensureTokens()
     if (!this.xCloud?.token) return { titles: [], cachedAt: Date.now() }
     const tok = { token: this.xCloud.token, market: this.xCloud.market, language: this.xCloud.language }
@@ -353,7 +495,7 @@ export class Backend {
     }).sort((a, b) => Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
 
     const library: CloudLibrary = { titles, cachedAt: Date.now(), account: this.profile?.gamertag }
-    if (titles.length) this.store.set('cloudCache', library)
+    if (titles.length && this.activeId === forAccount) this.store.set(this.cloudCacheKey(), library)
     console.info(`[cloud] ${titles.length} titles from ${new URL(host).hostname}: list ${t1 - t0}ms, details ${t2 - t1}ms (${batches.length} batches), total ${Date.now() - t0}ms`)
     return library
   }
@@ -425,7 +567,7 @@ export class Backend {
 
   async streamMsal(handle: string) {
     await this.ensureTokens()
-    await caller.streaming_send_msal_token({ ...this.base(handle), refreshToken: this.userToken!.refresh_token })
+    await caller.streaming_send_msal_token({ ...this.base(handle), refreshToken: this.active()!.userToken.refresh_token })
   }
 
   async streamKeepalive(handle: string) {

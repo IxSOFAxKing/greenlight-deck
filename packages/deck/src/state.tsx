@@ -6,15 +6,17 @@ import { call, onUpdateStatus } from './api'
 
 interface SettingsCtx {
   settings: Settings
+  loaded: boolean
   update: (patch: Partial<Settings>) => void
 }
 
-const Ctx = createContext<SettingsCtx>({ settings: defaultSettings, update: () => {} })
+const Ctx = createContext<SettingsCtx>({ settings: defaultSettings, loaded: false, update: () => {} })
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(defaultSettings)
+  const [loaded, setLoaded] = useState(false)
 
-  useEffect(() => { call('getSettings').then(setSettings).catch(() => {}) }, [])
+  useEffect(() => { call('getSettings').then(setSettings).catch(() => {}).finally(() => setLoaded(true)) }, [])
 
   const update = useCallback((patch: Partial<Settings>) => {
     setSettings(prev => {
@@ -24,7 +26,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  return <Ctx.Provider value={{ settings, update }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ settings, loaded, update }}>{children}</Ctx.Provider>
 }
 
 export const useSettings = () => useContext(Ctx)

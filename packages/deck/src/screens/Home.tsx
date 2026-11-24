@@ -9,6 +9,7 @@ import { focusFirst } from '../input/spatial'
 import { sound } from '../input/sound'
 import { useToast, useUpdate } from '../state'
 import { SettingsTab } from './Settings'
+import { Avatar } from './Profiles'
 import { CloudTab, type CloudControls } from './Cloud'
 
 type Tab = 'consoles' | 'cloud' | 'settings'
@@ -17,9 +18,10 @@ interface Props {
   auth: AuthState
   onStream: (t: StreamTarget) => void
   hidden?: boolean
+  onProfiles: () => void
 }
 
-export function HomeScreen({ auth, onStream, hidden }: Props) {
+export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const tabs: Tab[] = auth.hasCloud ? ['consoles', 'cloud', 'settings'] : ['consoles', 'settings']
@@ -75,6 +77,7 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
   const streamConsole = (c: XboxConsole) => onStream({ kind: 'home', id: c.id, name: c.name, wake: c.powerState !== 'On' })
 
   useInputLayer(ref, (action) => {
+    if (action === 'view') { onProfiles(); return true }
     if (action === 'lb') { switchTab(-1); return true }
     if (action === 'rb') { switchTab(1); return true }
     if (action === 'y') {
@@ -120,22 +123,22 @@ export function HomeScreen({ auth, onStream, hidden }: Props) {
           ))}
           <span className="tab-glyph" onClick={() => switchTab(1)}><Glyph name="RB" /></span>
         </nav>
-        <div className="profile">
-          {auth.profile?.avatarUrl ? <img src={auth.profile.avatarUrl} alt="" /> : <div className="avatar-fallback">{auth.profile?.gamertag?.[0] ?? '?'}</div>}
+        <button className="profile" onClick={onProfiles} tabIndex={-1} aria-label="Switch profile">
+          <Avatar account={{ gamertag: auth.profile?.gamertag ?? '?', avatarUrl: auth.profile?.avatarUrl }} size={44} />
           <div>
             <div className="gamertag">{auth.profile?.gamertag ?? 'Signed in'}</div>
-            {auth.profile?.gamerscore && <div className="muted small">{auth.profile.gamerscore} G</div>}
+            <div className="muted small">{(auth.accounts?.length ?? 0) > 1 ? <><Glyph name="View" /> Switch</> : auth.profile?.gamerscore ? `${auth.profile.gamerscore} G` : ''}</div>
           </div>
-        </div>
+        </button>
       </header>
 
       <main className="content" ref={contentRef}>
         {tab === 'consoles' && <ConsolesTab state={consoles} onStream={streamConsole} onWake={wake} />}
         {tab === 'cloud' && <CloudTab state={cloud} controls={cloudControls} onPlay={t => onStream({ kind: 'cloud', id: t.titleId, name: t.name })} />}
-        {tab === 'settings' && <SettingsTab />}
+        {tab === 'settings' && <SettingsTab onProfiles={onProfiles} gamertag={auth.profile?.gamertag} />}
       </main>
 
-      <HintBar hints={hints} left={<span className="muted small">Hold <Glyph name="L3R3" /> in-game for the menu</span>} />
+      <HintBar hints={hints} left={<span className="muted small"><Glyph name="View" /> Profiles · Hold <Glyph name="L3R3" /> in-game for the menu</span>} />
     </div>
   )
 }

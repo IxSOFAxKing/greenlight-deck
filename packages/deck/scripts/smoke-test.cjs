@@ -43,9 +43,22 @@ app.whenReady().then(async () => {
     await key('Return'); await wait(600)
     check('device code shown', await has('.device-code'))
 
+    // Profiles: picker at launch with several saved accounts
+    await win.loadFile(path.join(dist, 'index.html'), { query: { mock: '1', accounts: '3', signinDelay: '800' } })
+    await wait(1300)
+    check('profile picker shows at launch', (await js(`document.querySelectorAll('.profile-card:not(.add)').length`)) === 3)
+    await key('Right'); await key('Return'); await wait(900)
+    check('picking a profile switches account', (await js(`(document.querySelector('.gamertag') || {}).innerText`)) === 'NightOwlKid')
+    await js(`document.querySelector('.profile').click(); 1`); await wait(500)
+    check('profile chip opens the picker', await has('.modal.profiles'))
+    await js(`document.querySelector('.profile-card.add').focus(); 1`); await key('Return'); await wait(500)
+    await key('Return'); await wait(1600)
+    check('add account signs in a new profile', (await js(`(document.querySelector('.gamertag') || {}).innerText`)) === 'SpeedRunSam')
+
     // Home
     await win.loadFile(path.join(dist, 'index.html'), { query: { mock: '1' } })
     await wait(1500)
+    check('no picker with one account', !(await has('.profiles')))
     check('console cards render', (await js(`document.querySelectorAll('.console-card').length`)) === 2)
     check('first console focused', /Living Room/.test(await focused()))
     await key('Right')

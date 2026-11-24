@@ -1,6 +1,6 @@
 // Mock backend used only when the UI runs in a plain browser (yarn preview:ui).
 // Lets you design and test controller navigation without an Xbox account.
-import type { AuthState, CloudTitle, DeckBridge, Settings, UpdateStatus, XboxConsole } from '../shared/api'
+import type { AccountSummary, AuthState, CloudTitle, DeckBridge, Settings, UpdateStatus, XboxConsole } from '../shared/api'
 import { defaultSettings } from '../shared/api'
 
 export function createMockBridge(): DeckBridge {
@@ -12,9 +12,20 @@ export function createMockBridge(): DeckBridge {
   let update: UpdateStatus = { state: 'idle', currentVersion: '0.2.0' }
   const setUpdate = (patch: Partial<UpdateStatus>) => { update = { ...update, ...patch }; updateListeners.forEach(l => l(update)) }
 
-  const auth = (): AuthState => signedIn
-    ? { signedIn: true, hasCloud: true, profile: { gamertag: 'DeckPlayer42', gamerscore: '12840' } }
-    : { signedIn: false, hasCloud: false }
+  // ?accounts=N previews N saved profiles (default 1).
+  const tags = ['DeckPlayer42', 'NightOwlKid', 'CouchCoop', 'SpeedRunSam']
+  let accounts: Array<Omit<AccountSummary, 'active'>> = signedIn
+    ? tags.slice(0, Math.max(1, Number(params.get('accounts') ?? 1))).map((g, i) => ({ id: `xuid-${i}`, gamertag: g, gamerscore: String(12840 - i * 3100) }))
+    : []
+  let activeId: string | undefined = accounts[0]?.id
+  const summaries = (): AccountSummary[] => accounts.map(a => ({ ...a, active: a.id === activeId }))
+  const auth = (): AuthState => {
+    const a = accounts.find(x => x.id === activeId)
+    return a
+      ? { signedIn: true, hasCloud: true, profile: { gamertag: a.gamertag, gamerscore: a.gamerscore }, accounts: summaries(), activeAccountId: activeId }
+      : { signedIn: false, hasCloud: false, accounts: summaries() }
+  }
+  const emit = () => authListeners.forEach(l => l(auth()))
 
   const consoles: XboxConsole[] = [
     { id: 'F4000ABCDEF', name: 'Living Room', consoleType: 'XboxSeriesX', powerState: 'ConnectedStandby', consoleStreamingEnabled: true },
@@ -38,11 +49,20 @@ export function createMockBridge(): DeckBridge {
   const impl: Record<string, (...a: any[]) => Promise<unknown>> = {
     getAuthState: async () => auth(),
     startSignIn: async () => {
-      setTimeout(() => { if (params.get('mock') !== 'signedout') { signedIn = true; authListeners.forEach(l => l(auth())) } }, 4000)
+      setTimeout(() => {
+        if (params.get('mock') === 'signedout' && !params.get('signin')) return
+        const tag = tags[accounts.length] ?? `Player${accounts.length + 1}`
+        accounts = [...accounts, { id: `xuid-${accounts.length}`, gamertag: tag, gamerscore: '420' }]
+        activeId = accounts[accounts.length - 1].id
+        signedIn = true
+        emit()
+      }, Number(params.get('signinDelay') ?? 4000))
       return { userCode: 'K7Q2-M9XD', verificationUri: 'https://www.microsoft.com/link', expiresIn: 900 }
     },
     cancelSignIn: async () => {},
-    signOut: async () => { signedIn = false; authListeners.forEach(l => l(auth())) },
+    signOut: async () => { accounts = accounts.filter(a => a.id !== activeId); activeId = accounts[0]?.id; emit() },
+    switchAccount: async (id: string) => { await delay(300); activeId = id; emit(); return auth() },
+    removeAccount: async (id: string) => { accounts = accounts.filter(a => a.id !== id); if (activeId === id) activeId = accounts[0]?.id; emit(); return auth() },
     getSettings: async () => settings,
     saveSettings: async (s: Settings) => (settings = s),
     listConsoles: async () => { await delay(400); return consoles },

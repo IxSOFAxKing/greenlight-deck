@@ -5,7 +5,17 @@ import { call } from '../api'
 import { HintBar, Spinner } from '../components/ui'
 import { useInputLayer } from '../input/layers'
 
-export function SignInScreen({ error }: { error?: string }) {
+export function SignInScreen({ error, adding, onBack, onOtherProfiles, onRetry }: {
+  error?: string
+  /** Adding another account while signed in: show "Back" instead of "Quit". */
+  adding?: boolean
+  onBack?: () => void
+  /** Offer to switch to another saved profile instead (e.g. this one's sign-in expired). */
+  onOtherProfiles?: () => void
+  /** Shown when offline: try the saved sign-in again instead of signing in anew. */
+  onRetry?: () => Promise<unknown>
+}) {
+  const [retrying, setRetrying] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const [prompt, setPrompt] = useState<DeviceCodePrompt | undefined>()
   const [loading, setLoading] = useState(false)
@@ -33,6 +43,7 @@ export function SignInScreen({ error }: { error?: string }) {
 
   useInputLayer(ref, (action) => {
     if (action === 'back' && prompt) { cancel(); return true }
+    if (action === 'back' && adding && onBack) { onBack(); return true }
     if (action === 'menu') { call('quit'); return true }
   })
 
@@ -42,16 +53,27 @@ export function SignInScreen({ error }: { error?: string }) {
     <div className="screen signin" ref={ref}>
       <div className="signin-hero">
         <div className="brand-mark big">Greenlight<span>Deck</span></div>
-        <p className="lede">Play your Xbox from your handheld. Sign in with the Microsoft account you use on your console.</p>
+        <p className="lede">{adding
+          ? 'Add another Xbox account. It stays signed in on this device, and you can switch between accounts from the home screen.'
+          : 'Play your Xbox from your handheld. Sign in with the Microsoft account you use on your console.'}</p>
         {shownError && <p className="error-text">{shownError}</p>}
       </div>
 
       {!prompt ? (
         <div className="signin-start">
-          <button className="btn btn-primary btn-xl" data-nav data-autofocus onClick={begin} disabled={loading}>
-            {loading ? <Spinner size={22} /> : 'Sign in'}
+          {onRetry && (
+            <button className="btn btn-primary btn-xl" data-nav data-autofocus disabled={retrying}
+              onClick={async () => { setRetrying(true); try { await onRetry() } finally { setRetrying(false) } }}>
+              {retrying ? <Spinner size={22} /> : 'Try again'}
+            </button>
+          )}
+          <button className={`btn ${onRetry ? '' : 'btn-primary btn-xl'}`} data-nav data-autofocus={!onRetry || undefined} onClick={begin} disabled={loading}>
+            {loading ? <Spinner size={22} /> : onRetry ? 'Sign in again' : 'Sign in'}
           </button>
-          <button className="btn btn-ghost" data-nav onClick={() => call('quit')}>Quit</button>
+          {onOtherProfiles && <button className="btn" data-nav onClick={onOtherProfiles}>Choose another profile</button>}
+          {adding && onBack
+            ? <button className="btn btn-ghost" data-nav onClick={onBack}>Back</button>
+            : <button className="btn btn-ghost" data-nav onClick={() => call('quit')}>Quit</button>}
         </div>
       ) : (
         <div className="signin-code">
@@ -75,7 +97,9 @@ export function SignInScreen({ error }: { error?: string }) {
 
       <HintBar hints={prompt
         ? [{ glyph: 'A', label: 'Select' }, { glyph: 'B', label: 'Cancel', onClick: cancel }]
-        : [{ glyph: 'A', label: 'Select' }, { glyph: 'Menu', label: 'Quit', onClick: () => call('quit') }]} />
+        : adding && onBack
+          ? [{ glyph: 'A', label: 'Select' }, { glyph: 'B', label: 'Back', onClick: onBack }]
+          : [{ glyph: 'A', label: 'Select' }, { glyph: 'Menu', label: 'Quit', onClick: () => call('quit') }]} />
     </div>
   )
 }
