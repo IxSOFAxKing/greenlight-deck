@@ -2,6 +2,10 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.4.3
+- The About section on game details no longer expands when you scroll past it. Press A on it to open the full description in a pop-up
+- The pop-up scrolls smoothly with either stick (speed follows how far you push), steadily with the D-pad, and a page at a time with LB/RB
+
 ## 0.4.2
 - Bigger, richer game details page: large background art, age rating, star rating, release year, player count, full description, publisher and developer, a features list, and screenshots you can open full screen (LB/RB to flip through)
 - Details come from the Microsoft Store catalog, which also fills in covers, logos and backgrounds the Game Pass catalog doesn't have

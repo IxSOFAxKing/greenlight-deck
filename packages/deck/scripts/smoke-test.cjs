@@ -82,6 +82,12 @@ app.whenReady().then(async () => {
     await key('Return'); await wait(900)
     check('A opens title details', await has('.detail-modal'))
     check('Play is focused', /Play/.test(await focused()))
+    await key('Down'); await wait(500)
+    check('About stays collapsed when scrolled to', (await js(`(() => { const d = document.querySelector('.detail-desc'); return d && d.scrollHeight > d.clientHeight + 20 })()`)) === true)
+    await key('Return'); await wait(600)
+    check('A on About opens the read-more pop-up', await has('.readmore'))
+    await key('Escape'); await wait(500)
+    check('B closes the pop-up', !(await has('.readmore')) && (await has('.detail-modal')))
     await key('Escape'); await wait(500)
     check('B closes details', !(await has('.detail-modal')))
 

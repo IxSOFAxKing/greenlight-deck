@@ -82,7 +82,7 @@ export function createMockBridge(): DeckBridge {
       const shot = (n: number) => svgUri(`<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><rect width="1920" height="1080" fill="hsl(${(i * 47 + n * 30) % 360},45%,${20 + n * 6}%)"/><circle cx="${400 + n * 300}" cy="420" r="260" fill="#fff" opacity=".12"/><text x="80" y="1000" font-family="sans-serif" font-size="64" fill="#fff" opacity=".6">Screenshot ${n + 1}</text></svg>`)
       return {
         productId, title: t.name, publisher: 'Sample Studio', developer: 'Sample Devs',
-        description: `${t.name} is a sample game used to preview the cloud library on your handheld.\n\nRace down procedurally generated slopes, build your reputation, and team up with friends online. Every run is different, and every bail counts. This longer description shows how the About panel handles several paragraphs of text from the store.`,
+        description: longDescription(t.name),
         releaseDate: '2019-05-07T00:00:00Z', genres: t.genres, ageRating: i % 3 === 0 ? 'E' : 'T', ageRatingSystem: 'ESRB',
         userRating: { average: 4.6 - (i % 4) * 0.3, count: 2310 - i * 100 }, maxPlayers: i % 2 ? 8 : undefined,
         capabilities: ['Single player', 'Online co-op (2-8)', 'Online multiplayer (2-8)', '4K Ultra HD', 'HDR10', '120 fps', 'Cloud saves', 'Achievements'],
@@ -152,4 +152,13 @@ function mockArt(name: string, i: number): Partial<CloudTitle> {
     heroUrl: hero,
     logoUrl: i === 1 ? undefined : logo,
   }
+}
+
+function longDescription(name: string) {
+  const sections = Array.from({ length: 8 }, (_, k) => `Section ${k + 1}: Bikes, boards and gear unlock as you climb the ranks. Each biome has its own hazards, from crumbling canyon edges to icy switchbacks, and the weather changes how your tires grip. Pick a crew, earn rep, and chase the leaderboard with friends.`)
+  return [
+    `${name} is a sample game used to preview the cloud library on your handheld.`,
+    'Race down procedurally generated slopes, build your reputation, and team up with friends online. Every run is different, and every bail counts.',
+    ...sections,
+  ].join('\n\n')
 }

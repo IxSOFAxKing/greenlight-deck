@@ -300,11 +300,13 @@ img { display: block; }
 .detail-loading { display: flex; align-items: center; gap: 8px; }
 .detail-columns { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 28px; }
 .detail-about, .detail-caps { border-radius: 16px; background: var(--bg-2); border: 1px solid var(--line); padding: 20px 24px; }
-.detail-about:focus { box-shadow: var(--focus); }
+.detail-about { text-align: left; color: inherit; font: inherit; cursor: pointer; display: block; width: 100%; }
+.detail-about:focus { box-shadow: var(--focus); background: var(--panel); }
+.read-more { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; font-weight: 700; font-size: 15px; color: var(--accent); }
+.detail-about:not(:focus) .read-more .glyph { opacity: .6; }
 .detail-body h3 { margin: 0 0 10px; font-size: 18px; color: var(--muted); font-weight: 700; letter-spacing: .02em; }
 .detail-desc { margin: 0; color: #d3dae1; font-size: 17px; line-height: 1.55; white-space: pre-line;
-  display: -webkit-box; -webkit-line-clamp: 9; -webkit-box-orient: vertical; overflow: hidden; }
-.detail-about:focus .detail-desc { -webkit-line-clamp: unset; display: block; }
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 16px 0 0; font-size: 15px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; font-weight: 600; }
@@ -351,3 +353,18 @@ img { display: block; }
 .confirm-box h2 { margin: 4px 0 0; }
 .confirm-box p { margin: 0 0 8px; }
 .btn-danger { background: var(--bad); color: #1b0606; border-color: transparent; }
+
+/* Read more pop-up */
+.readmore { align-items: stretch; }
+.readmore .hintbar { align-self: stretch; }
+.readmore-panel { flex: 1; min-height: 0; width: min(900px, 92vw); margin: 28px auto 0; padding: 28px 32px 22px; border-radius: 20px;
+  border: 1px solid var(--line); background: var(--bg-2); display: flex; flex-direction: column; gap: 14px; }
+.readmore-panel h2 { margin: 0; font-size: 28px; letter-spacing: -0.01em; }
+.readmore-text { flex: 1; min-height: 0; overflow-y: auto; outline: none; padding-right: 8px; }
+.readmore-text::-webkit-scrollbar { width: 6px; }
+.readmore-text::-webkit-scrollbar-thumb { background: #2f3842; border-radius: 3px; }
+.readmore-text p { margin: 0 0 18px; font-size: 19px; line-height: 1.65; color: #dbe2e8; white-space: pre-line; }
+.readmore-text.fade-bottom { -webkit-mask-image: linear-gradient(#000 85%, transparent); }
+.readmore-text.fade-top { -webkit-mask-image: linear-gradient(transparent, #000 12%); }
+.readmore-text.fade-top.fade-bottom { -webkit-mask-image: linear-gradient(transparent, #000 12%, #000 85%, transparent); }
+.readmore-close { align-self: flex-end; }

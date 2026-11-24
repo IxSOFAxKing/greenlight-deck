@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { CloudTitle, TitleDetails } from '../../shared/api'
 import { call, log } from '../api'
@@ -115,6 +115,7 @@ function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: (
   const [logoFailed, setLogoFailed] = useState(false)
   const [heroFailed, setHeroFailed] = useState(false)
   const [shot, setShot] = useState<number | undefined>()
+  const [reading, setReading] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -129,7 +130,7 @@ function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: (
     if (a === 'lb' || a === 'rb') return true
     // Up from the top row goes back to the very top of the page.
     if (a === 'up' && document.activeElement?.classList.contains('play-btn')) { scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); return true }
-  }, shot === undefined)
+  }, shot === undefined && !reading)
 
   const name = info?.title ?? title.name
   const heroSrc = !heroFailed ? (info?.heroUrl ? sized(info.heroUrl, 1920) : title.heroUrl) : undefined
@@ -184,15 +185,17 @@ function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: (
           {info === undefined && <div className="muted small detail-loading"><span className="mini-spinner" aria-hidden="true" /> Loading game details…</div>}
 
           <div className="detail-columns">
-            <div className="detail-about" data-nav tabIndex={0} aria-label="About this game">
+            <button className="detail-about" data-nav aria-label="About this game. Press A to read more."
+              onClick={() => description && setReading(true)}>
               <h3>About</h3>
               {description ? <p className="detail-desc">{description}</p> : <p className="muted">No description available.</p>}
+              {description && <span className="read-more"><Glyph name="A" /> Read more</span>}
               <dl className="facts">
                 {(info?.publisher ?? title.publisher) && <><dt>Published by</dt><dd>{info?.publisher ?? title.publisher}</dd></>}
                 {info?.developer && <><dt>Developed by</dt><dd>{info.developer}</dd></>}
                 {info?.releaseDate && <><dt>Released</dt><dd>{new Date(info.releaseDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })}</dd></>}
               </dl>
-            </div>
+            </button>
             {!!capabilities?.length && (
               <div className="detail-caps">
                 <h3>Features</h3>
@@ -216,8 +219,104 @@ function TitleDetail({ title, onClose, onPlay }: { title: CloudTitle; onClose: (
         </section>
       </div>
 
+      {reading && description && (
+        <ReadMore title={name} text={description}
+          facts={[
+            ['Published by', info?.publisher ?? title.publisher],
+            ['Developed by', info?.developer],
+            ['Released', info?.releaseDate ? new Date(info.releaseDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : undefined],
+          ]}
+          onClose={() => setReading(false)} />
+      )}
       {shot !== undefined && <Lightbox images={shots} index={shot} onIndex={setShot} onClose={() => setShot(undefined)} />}
       <HintBar hints={[{ glyph: 'A', label: 'Select' }, { glyph: 'B', label: 'Back', onClick: onClose }]} />
+    </div>
+  )
+}
+
+/**
+ * Full description in a pop-up with smooth controller scrolling:
+ * either stick scrolls at a speed that follows how far it's pushed,
+ * D-pad up/down scrolls steadily, LB/RB jump a page, B or A closes.
+ */
+function ReadMore({ title, text, facts, onClose }: {
+  title: string; text: string; facts: Array<[string, string | undefined]>; onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [atTop, setAtTop] = useState(true)
+  const [atEnd, setAtEnd] = useState(false)
+
+  const page = (dir: number) => {
+    const box = boxRef.current
+    if (box) box.scrollBy({ top: dir * box.clientHeight * 0.85, behavior: 'smooth' })
+  }
+
+  // The menu input layer swallows directions here; scrolling reads the pad
+  // directly every frame so it's continuous rather than step-by-step.
+  useInputLayer(ref, (a) => {
+    if (a === 'back' || a === 'accept') { onClose(); return true }
+    if (a === 'lb') { page(-1); return true }
+    if (a === 'rb') { page(1); return true }
+    return true
+  })
+
+  useEffect(() => {
+    let raf = 0
+    let last = performance.now()
+    const keys = new Set<string>()
+    const down = (e: KeyboardEvent) => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') keys.add(e.key) }
+    const up = (e: KeyboardEvent) => keys.delete(e.key)
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+
+    const tick = (now: number) => {
+      const dt = Math.min(50, now - last) / 1000
+      last = now
+      let v = 0 // -1..1, positive = down
+      for (const p of navigator.getGamepads?.() ?? []) {
+        if (!p || !p.connected) continue
+        const sticks = [p.axes[1] ?? 0, p.axes[3] ?? 0]
+        for (const y of sticks) if (Math.abs(y) > 0.15 && Math.abs(y) > Math.abs(v)) v = Math.sign(y) * ((Math.abs(y) - 0.15) / 0.85)
+        if (p.buttons[12]?.pressed) v = -0.6
+        if (p.buttons[13]?.pressed) v = 0.6
+      }
+      if (keys.has('ArrowUp')) v = -0.6
+      if (keys.has('ArrowDown')) v = 0.6
+      const box = boxRef.current
+      if (box && v !== 0) {
+        // Ease the curve so small pushes scroll gently and a full push is fast.
+        const speed = Math.sign(v) * Math.pow(Math.abs(v), 1.6) * 1400
+        box.scrollTop += speed * dt
+      }
+      if (box) {
+        setAtTop(box.scrollTop <= 1)
+        setAtEnd(box.scrollTop + box.clientHeight >= box.scrollHeight - 1)
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
+
+  return (
+    <div className="modal readmore" ref={ref} role="dialog" aria-label={`About ${title}`}>
+      <div className="readmore-panel">
+        <h2>{title}</h2>
+        <div className={`readmore-text ${atTop ? '' : 'fade-top'} ${atEnd ? '' : 'fade-bottom'}`} ref={boxRef} tabIndex={-1}>
+          <p>{text}</p>
+          <dl className="facts">
+            {facts.filter(([, v]) => v).map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>)}
+          </dl>
+        </div>
+        <button className="btn readmore-close" data-nav data-autofocus onClick={onClose}>Close</button>
+      </div>
+      <HintBar left={<span className="muted small">Use either stick or the D-pad to scroll</span>}
+        hints={[{ glyph: 'LB', label: 'Page up', onClick: () => page(-1) }, { glyph: 'RB', label: 'Page down', onClick: () => page(1) }, { glyph: 'B', label: 'Close', onClick: onClose }]} />
     </div>
   )
 }
