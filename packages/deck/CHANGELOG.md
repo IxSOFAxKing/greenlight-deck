@@ -2,6 +2,12 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.4.2
+- Bigger, richer game details page: large background art, age rating, star rating, release year, player count, full description, publisher and developer, a features list, and screenshots you can open full screen (LB/RB to flip through)
+- Details come from the Microsoft Store catalog, which also fills in covers, logos and backgrounds the Game Pass catalog doesn't have
+- Fixed: some covers didn't load because the link used http (the app only loads images over https)
+- The debug log now records which covers fail to load and why, plus a summary of where covers came from
+
 ## 0.4.1
 - Redesigned game details: full-screen background art, the game's logo as its title, and the box art at its proper shape (it was squashed thin)
 - Fewer missing covers: the app looks for art under more names, only asks for resized images where that's supported, and falls back to the full-size image if a resized one fails

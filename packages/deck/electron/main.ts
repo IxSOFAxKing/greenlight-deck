@@ -130,6 +130,7 @@ app.whenReady().then(() => {
     wakeConsole: (id) => backend.wakeConsole(id),
     listCloudTitles: (refresh) => backend.listCloudTitles(!!refresh),
     cloudWaitTime: (id) => backend.cloudWaitTime(id),
+    cloudTitleDetails: (id) => backend.cloudTitleDetails(id),
     streamStart: (kind, id, res) => backend.streamStart(kind, id, res),
     streamStatus: (h) => backend.streamStatus(h),
     streamSdp: (h, offer) => backend.streamSdp(h, offer),

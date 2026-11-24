@@ -115,6 +115,29 @@ export interface CloudTitle {
   features?: string[]
 }
 
+/** Extra info for a game's details page (from the public Store catalog). */
+export interface TitleDetails {
+  productId?: string
+  title?: string
+  publisher?: string
+  developer?: string
+  description?: string
+  shortDescription?: string
+  releaseDate?: string
+  genres?: string[]
+  /** e.g. "E", "T", "M" (ESRB) or "3", "12" (PEGI). */
+  ageRating?: string
+  ageRatingSystem?: string
+  userRating?: { average: number; count: number }
+  capabilities?: string[]
+  maxPlayers?: number
+  posterUrl?: string
+  squareUrl?: string
+  heroUrl?: string
+  logoUrl?: string
+  screenshots?: string[]
+}
+
 export interface CloudLibrary {
   titles: CloudTitle[]
   /** When this list was fetched from Xbox (ms since epoch). */
@@ -159,6 +182,8 @@ export interface DeckApi {
   wakeConsole(id: string): Promise<void>
   /** Cached library when available (fast); pass refresh to fetch it fresh. */
   listCloudTitles(refresh?: boolean): Promise<CloudLibrary>
+  /** Full details for a cloud game's details page, or null if unavailable. */
+  cloudTitleDetails(productId: string): Promise<TitleDetails | null>
   /** Estimated xCloud queue time in seconds, or null if unknown. */
   cloudWaitTime(titleId: string): Promise<number | null>
 

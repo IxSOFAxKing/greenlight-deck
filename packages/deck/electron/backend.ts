@@ -6,7 +6,7 @@ import { appRouter, createCallerFactory } from '@greenlight/platform'
 import XboxApiClient from 'xbox-webapi'
 import { randomUUID } from 'node:crypto'
 import type {
-  AccountSummary, AuthState, CloudLibrary, CloudTitle, DeviceCodePrompt, Profile, Resolution, Settings,
+  AccountSummary, AuthState, CloudLibrary, CloudTitle, DeviceCodePrompt, TitleDetails, Profile, Resolution, Settings,
   StreamKind, StreamStartResult, StreamStatus, XboxConsole,
 } from '../shared/api'
 import { defaultSettings } from '../shared/api'
@@ -48,7 +48,7 @@ const TOKEN_MAX_AGE_MS = 45 * 60 * 1000
 const CLOUD_CACHE_FRESH_MS = 60 * 60 * 1000
 
 /** Bump when the shape of cached titles changes, so old caches refresh. */
-const CLOUD_CACHE_VERSION = 2
+const CLOUD_CACHE_VERSION = 3
 
 /**
  * Ask Microsoft's store image CDN for a right-sized image instead of the
@@ -57,7 +57,7 @@ const CLOUD_CACHE_VERSION = 2
  */
 function sizedImage(u: string | undefined, w: number, h: number): string | undefined {
   if (!u) return undefined
-  const url = u.startsWith('//') ? `https:${u}` : u
+  const url = absolute(u)!
   try {
     const parsed = new URL(url)
     if (parsed.hostname === 'store-images.s-microsoft.com') {
@@ -70,8 +70,35 @@ function sizedImage(u: string | undefined, w: number, h: number): string | undef
   return url
 }
 
+/** Make image links absolute and https (the app only loads images over https). */
 function absolute(u: string | undefined) {
-  return u ? (u.startsWith('//') ? `https:${u}` : u) : undefined
+  if (!u) return undefined
+  if (u.startsWith('//')) return `https:${u}`
+  if (u.startsWith('http://')) return `https://${u.slice(7)}`
+  return u
+}
+
+const STORE_CATALOG = 'https://displaycatalog.mp.microsoft.com/v7.0/products'
+
+/** Friendlier names for Store capability attributes. */
+const CAPABILITY_LABELS: Record<string, string> = {
+  XblOnlineCoop: 'Online co-op', XblOnlineMultiPlayer: 'Online multiplayer', XblLocalCoop: 'Local co-op',
+  XblLocalMultiPlayer: 'Local multiplayer', SinglePlayer: 'Single player', XboxLive: 'Xbox network',
+  XblAchievements: 'Achievements', XblCloudSaves: 'Cloud saves', XblPresence: 'Xbox presence',
+  XblCrossPlatformMultiPlayer: 'Cross-platform multiplayer', XblCrossPlatformCoop: 'Cross-platform co-op',
+  XblClubs: 'Clubs', '4k': '4K Ultra HD', '4K': '4K Ultra HD', HDR: 'HDR', HDR10: 'HDR10', RayTracing: 'Ray tracing',
+  '60fps': '60 fps+', '120fps': '120 fps', VariableRefreshRate: 'Variable refresh rate', SpatialSound: 'Spatial sound',
+  XboxSeriesXOptimized: 'Optimized for Series X|S', CapabilityXboxEnhanced: 'Xbox One X Enhanced', SmartDelivery: 'Smart Delivery',
+  XPA: 'Xbox Play Anywhere', CrossGenMultiPlayer: 'Cross-gen multiplayer', XboxLiveCrossGenMP: 'Cross-gen multiplayer',
+  SharedSplitScreen: 'Split screen', XboxCloudGaming: 'Cloud gaming', ConsoleCrossGen: 'Cross-gen', TouchControls: 'Touch controls',
+}
+
+function capabilityLabel(a: any): string | undefined {
+  const name: string = a?.Name ?? ''
+  if (!name) return undefined
+  const label = CAPABILITY_LABELS[name] ?? name.replace(/^Xbl/, '').replace(/([a-z])([A-Z])/g, '$1 $2')
+  const min = Number(a?.Minimum), max = Number(a?.Maximum)
+  return max > 1 ? `${label} (${min > 1 ? min : 2}-${max})` : label
 }
 
 /**
@@ -546,12 +573,73 @@ export class Backend {
         features: strings(c?.Attributes).slice(0, 6),
       }
     }).sort((a, b) => Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
-    if (missingArt) console.info(`[cloud] ${missingArt} title(s) without box art. Example: ${sampleKeys}`)
+    const needed = titles.filter(t => !t.posterUrl).length
+    const filled = await this.fillMissingArt(titles)
+    console.info(`[cloud] art: ${titles.length - needed}/${titles.length} covers from Game Pass catalog, ${filled} more from the Store catalog, ${needed - filled} still missing${missingArt ? ` (e.g. ${sampleKeys})` : ''}`)
 
     const library: CloudLibrary = { titles, cachedAt: Date.now(), account: this.profile?.gamertag, v: CLOUD_CACHE_VERSION }
     if (titles.length && this.activeId === forAccount) this.store.set(this.cloudCacheKey(), library)
     console.info(`[cloud] ${titles.length} titles from ${new URL(host).hostname}: list ${t1 - t0}ms, details ${t2 - t1}ms (${batches.length} batches), total ${Date.now() - t0}ms`)
     return library
+  }
+
+  // ---------- Store catalog (public): details page, and art the Game Pass catalog lacks ----------
+
+  private detailsCache = new Map<string, TitleDetails>()
+
+  private async storeProducts(productIds: string[]): Promise<any[]> {
+    if (!productIds.length) return []
+    const market = this.xCloud?.market ?? this.xHome?.market ?? 'US'
+    const lang = (this.xCloud?.language ?? language()).toLowerCase()
+    const url = `${STORE_CATALOG}?bigIds=${productIds.map(encodeURIComponent).join(',')}&market=${market}&languages=${lang},en-us,neutral`
+    const res = await fetch(url, { headers: { 'MS-CV': 'GreenlightDeck.0' } })
+    if (!res.ok) throw new Error(`Store catalog HTTP ${res.status}`)
+    const data: any = await res.json()
+    return data?.Products ?? []
+  }
+
+  /** Rich info for the details page: full description, ratings, screenshots, capabilities, large art. */
+  async cloudTitleDetails(productId: string): Promise<TitleDetails | null> {
+    if (!productId) return null
+    const cached = this.detailsCache.get(productId)
+    if (cached) return cached
+    try {
+      const [p] = await this.storeProducts([productId])
+      if (!p) return null
+      const details = parseStoreProduct(p)
+      this.detailsCache.set(productId, details)
+      return details
+    } catch (err) {
+      console.warn(`[cloud] details for ${productId} failed:`, errorMessage(err))
+      return null
+    }
+  }
+
+  /** Fill in posters/logos the Game Pass catalog didn't have, from the Store catalog. */
+  private async fillMissingArt(titles: CloudTitle[]) {
+    const missing = titles.filter(t => t.productId && (!t.posterUrl || !t.logoUrl || !t.heroUrl))
+    if (!missing.length) return 0
+    let filled = 0
+    const chunks: CloudTitle[][] = []
+    for (let i = 0; i < missing.length; i += 20) chunks.push(missing.slice(i, i + 20))
+    await Promise.all(chunks.map(async chunk => {
+      try {
+        const products = await this.storeProducts(chunk.map(t => t.productId!))
+        for (const p of products) {
+          const t = chunk.find(x => x.productId?.toLowerCase() === String(p?.ProductId ?? '').toLowerCase())
+          if (!t) continue
+          const d = parseStoreProduct(p)
+          if (!t.posterUrl && d.posterUrl) { t.posterUrl = sizedImage(d.posterUrl, 360, 540); t.posterOriginalUrl = d.posterUrl; filled++ }
+          if (!t.imageUrl && (d.squareUrl ?? d.posterUrl)) t.imageUrl = sizedImage(d.squareUrl ?? d.posterUrl, 300, 300)
+          if (!t.logoUrl && d.logoUrl) t.logoUrl = sizedImage(d.logoUrl, 800, 400)
+          if (!t.heroUrl && d.heroUrl) t.heroUrl = sizedImage(d.heroUrl, 1600, 900)
+          this.detailsCache.set(t.productId!, d)
+        }
+      } catch (err) {
+        console.warn('[cloud] Store catalog art lookup failed:', errorMessage(err))
+      }
+    }))
+    return filled
   }
 
   async cloudWaitTime(titleId: string): Promise<number | null> {
@@ -645,5 +733,47 @@ export class Backend {
 
   async stopAllStreams() {
     await Promise.all([...this.sessions.keys()].map(h => this.streamStop(h)))
+  }
+}
+
+/** Turn a Store catalog product into the details the UI shows. */
+function parseStoreProduct(p: any): TitleDetails {
+  const lp = p?.LocalizedProperties?.[0] ?? {}
+  const props = p?.Properties ?? {}
+  const mp = p?.MarketProperties?.[0] ?? {}
+  const images: any[] = lp.Images ?? []
+  const byPurpose = (purpose: string) => images
+    .filter(i => String(i?.ImagePurpose).toLowerCase() === purpose.toLowerCase())
+    .sort((a, b) => (b.Width ?? 0) * (b.Height ?? 0) - (a.Width ?? 0) * (a.Height ?? 0))
+  const first = (...purposes: string[]) => {
+    for (const pu of purposes) { const m = byPurpose(pu)[0]; if (m?.Uri) return absolute(m.Uri) }
+    return undefined
+  }
+  const rating = (mp.UsageData ?? []).find((u: any) => u.AggregateTimeSpan === 'AllTime') ?? (mp.UsageData ?? [])[0]
+  const content = (p?.MarketProperties?.[0]?.ContentRatings ?? lp.ContentRatings ?? p?.ContentRatings ?? []) as any[]
+  const esrb = content.find(c => c?.RatingSystem === 'ESRB') ?? content[0]
+  const ratingId: string | undefined = esrb?.RatingId
+  const release = mp.OriginalReleaseDate ?? p?.MarketProperties?.[0]?.OriginalReleaseDate
+  const attrs: any[] = props.Attributes ?? []
+  const maxPlayers = Math.max(0, ...attrs.map(a => Number(a?.Maximum) || 0))
+  return {
+    productId: p?.ProductId,
+    title: lp.ProductTitle,
+    publisher: lp.PublisherName,
+    developer: lp.DeveloperName,
+    description: lp.ProductDescription ?? lp.ShortDescription,
+    shortDescription: lp.ShortDescription,
+    releaseDate: release && !String(release).startsWith('1753') && !String(release).startsWith('2100') ? release : undefined,
+    genres: [...new Set([props.Category, ...(props.Categories ?? [])].filter(Boolean))].slice(0, 4),
+    ageRating: ratingId ? ratingId.split(':').pop() : undefined,
+    ageRatingSystem: esrb?.RatingSystem,
+    userRating: rating?.AverageRating ? { average: Number(rating.AverageRating), count: Number(rating.RatingCount ?? 0) } : undefined,
+    capabilities: [...new Set(attrs.map(capabilityLabel).filter((x): x is string => !!x))].slice(0, 16),
+    maxPlayers: maxPlayers > 1 ? maxPlayers : undefined,
+    posterUrl: first('Poster', 'BoxArt'),
+    squareUrl: first('BoxArt', 'Tile', 'FeaturePromotionalSquareArt'),
+    heroUrl: first('SuperHeroArt', 'Hero', 'TitledHeroArt'),
+    logoUrl: first('Logo'),
+    screenshots: byPurpose('Screenshot').map(i => absolute(i.Uri)!).filter(Boolean).slice(0, 10),
   }
 }

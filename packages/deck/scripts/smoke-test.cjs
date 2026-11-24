@@ -80,10 +80,10 @@ app.whenReady().then(async () => {
     check('B closes keyboard', !(await has('.osk')))
     await wait(600) // focus returns to the grid after the keyboard closes
     await key('Return'); await wait(900)
-    check('A opens title details', await has('.detail'))
+    check('A opens title details', await has('.detail-modal'))
     check('Play is focused', /Play/.test(await focused()))
     await key('Escape'); await wait(500)
-    check('B closes details', !(await has('.detail')))
+    check('B closes details', !(await has('.detail-modal')))
 
     // Settings + log viewer
     await key('E'); await wait(800)

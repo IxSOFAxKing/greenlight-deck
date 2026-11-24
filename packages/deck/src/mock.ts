@@ -44,7 +44,7 @@ export function createMockBridge(): DeckBridge {
   // ?many=1 previews a full-size library (~400 games) for scrolling tests.
   if (params.get('many')) for (let i = names.length; i < 400; i++) { names.push(`Sample Game ${i + 1}`); genres.push(['Action']) }
   const titles: CloudTitle[] = names.map((name, i) => ({
-    titleId: `MOCK${i}`, name, recent: i < 4, publisher: 'Sample Studio', genres: genres[i],
+    titleId: `MOCK${i}`, productId: `PROD${i}`, name, recent: i < 4, publisher: 'Sample Studio', genres: genres[i],
     description: `${name} is a sample game used to preview the cloud library on your handheld.`,
     features: i % 2 ? ['Touch controls', 'Online multiplayer'] : ['4K Ultra HD'],
     ...mockArt(name, i),
@@ -74,6 +74,21 @@ export function createMockBridge(): DeckBridge {
     listConsoles: async () => { await delay(400); return consoles },
     wakeConsole: async () => { await delay(300) },
     listCloudTitles: async (refresh?: boolean) => { await delay(refresh ? 1200 : 300); return { titles, cachedAt: Date.now() - (refresh ? 0 : 3 * 3600_000) } },
+    cloudTitleDetails: async (productId: string) => {
+      await delay(500)
+      const i = Number(productId.replace('PROD', ''))
+      const t = titles[i]
+      if (!t || i === 5) return null
+      const shot = (n: number) => svgUri(`<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><rect width="1920" height="1080" fill="hsl(${(i * 47 + n * 30) % 360},45%,${20 + n * 6}%)"/><circle cx="${400 + n * 300}" cy="420" r="260" fill="#fff" opacity=".12"/><text x="80" y="1000" font-family="sans-serif" font-size="64" fill="#fff" opacity=".6">Screenshot ${n + 1}</text></svg>`)
+      return {
+        productId, title: t.name, publisher: 'Sample Studio', developer: 'Sample Devs',
+        description: `${t.name} is a sample game used to preview the cloud library on your handheld.\n\nRace down procedurally generated slopes, build your reputation, and team up with friends online. Every run is different, and every bail counts. This longer description shows how the About panel handles several paragraphs of text from the store.`,
+        releaseDate: '2019-05-07T00:00:00Z', genres: t.genres, ageRating: i % 3 === 0 ? 'E' : 'T', ageRatingSystem: 'ESRB',
+        userRating: { average: 4.6 - (i % 4) * 0.3, count: 2310 - i * 100 }, maxPlayers: i % 2 ? 8 : undefined,
+        capabilities: ['Single player', 'Online co-op (2-8)', 'Online multiplayer (2-8)', '4K Ultra HD', 'HDR10', '120 fps', 'Cloud saves', 'Achievements'],
+        screenshots: [0, 1, 2, 3, 4].map(shot),
+      }
+    },
     cloudWaitTime: async (id: string) => { await delay(400); return Number(id.replace('MOCK', '')) % 3 === 0 ? 0 : 95 },
     streamStart: async () => { await delay(800); return { handle: 'mock', sessionPath: 'v5/sessions/home/mock' } },
     streamStatus: async () => { await delay(500); return { state: 'Failed', errorDetails: { message: 'Mock mode: streaming needs the Electron app.' } } },
