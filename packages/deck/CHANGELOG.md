@@ -2,6 +2,11 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.4.4
+- Fixed: the stream going black after being idle. When your Xbox ends the session (usually after a while with no input), the app now says so and offers Reconnect, instead of leaving a black screen
+- Fixed: messages from your Xbox (like inactivity warnings) froze the app behind an invisible pop-up. They now appear as a controller-friendly dialog over the stream
+- If the stream stops for any other reason, the app notices and reconnects automatically
+
 ## 0.4.3
 - The About section on game details no longer expands when you scroll past it. Press A on it to open the full description in a pop-up
 - The pop-up scrolls smoothly with either stick (speed follows how far you push), steadily with the D-pad, and a page at a time with LB/RB

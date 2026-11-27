@@ -4,6 +4,7 @@
 import Gamepad from '../../player/src/client/lib/input/gamepad'
 import InputChannel from '../../player/src/client/lib/channel/input'
 import ControlChannel from '../../player/src/client/lib/channel/control'
+import MessageHandler from '../../player/src/client/lib/channel/message/handler'
 const mk = (index: number, id: string, n = 17, pressed: number[] = [], axes = [0, 0, 0, 0]) => ({ index, id, connected: true, mapping: 'standard', timestamp: 1, axes,
   buttons: Array.from({ length: n }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })) })
 let pads: any[] = []
@@ -91,6 +92,31 @@ for (const order of ['attach before handshake', 'attach after handshake']) {
   ok(`${order}: controller stays attached`, ch._gamepadHandlers[0] === g)
   ok(`${order}: Xbox told it's connected`, !!last && last.wasAdded === true && !pad0.some(m => m.wasAdded === false),
     `(${pad0.map(m => m.wasAdded ? 'added' : 'removed').join(' → ')})`)
+}
+
+// 10-12. Messages from the console: session end and system dialogs
+{
+  const events: string[] = []
+  const sent: any[] = []
+  const player: any = {
+    destroy: () => events.push('destroy'),
+    onServerDisconnect: (c: string) => events.push('notified:' + c),
+  }
+  const channel: any = { getPlayer: () => player, send: (m: string) => sent.push(JSON.parse(m)) }
+  ;(globalThis as any).confirm = () => { events.push('CONFIRM CALLED'); return true }
+  new MessageHandler(channel, { target: '/streaming/sessionLifetimeManagement/serverInitiatedDisconnect', id: 'd1', content: '{"reason":"idle"}', type: 'Message' })
+  ok('console ending the session tells the app before tearing down', events[0] === 'notified:{"reason":"idle"}' && events[1] === 'destroy', `(${events.join(', ')})`)
+
+  events.length = 0
+  let shown: any
+  player.onSystemDialog = async (d: any) => { shown = d; return 1 }
+  new MessageHandler(channel, { target: '/streaming/systemUi/messages/ShowMessageDialog', id: 'm1', type: 'Message',
+    content: JSON.stringify({ TitleText: 'Still there?', ContentText: 'Your session will end soon.', CommandLabel1: 'Keep playing', CommandLabel2: 'Quit', PrimaryCommandIndex: 0, CancelCommandIndex: 1 }) })
+  await new Promise(r => setTimeout(r, 20))
+  const reply = sent.find(m => JSON.stringify(m).includes('m1'))
+  ok('console message goes to the app, never a blocking confirm()', !events.includes('CONFIRM CALLED') && shown?.buttons?.join('/') === 'Keep playing/Quit', `(buttons: ${shown?.buttons?.join('/')})`)
+  const result = reply ? JSON.parse(reply.content)?.Result : undefined
+  ok("the app's choice is sent back to the console", reply?.type === 'TransactionComplete' && result === 1, `(Result: ${result})`)
 }
 
 quiet(`\n${pass} passed, ${fail} failed`)

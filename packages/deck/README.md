@@ -93,6 +93,7 @@ When something goes wrong, open **Settings → Debug log** and choose **Copy to 
 - **Console not listed**: remote features are off, or the console is signed in to a different account.
 - **Stuck on "Waking up your Xbox…"**: the console is in Energy saver mode. Switch it to Sleep.
 - **Controls don't respond in a game**: press any button once. The stream switches to the controller you're using. If it still doesn't respond, the debug log's `Controllers:` line shows which controllers the app can see.
+- **Stream ends when you're away**: Xbox ends remote play sessions after a while with no input. The app shows "Stream ended by your Xbox": press A to reconnect. If the console also goes to sleep, set **Settings → General → Power options → "Turn off after"** on the Xbox to a longer time.
 - **Black screen with audio**: in Settings, set Video renderer to Standard.
 - **App won't start from the AppImage**: try launching with `--no-sandbox`. Steam shortcut → Properties → Launch options.
 

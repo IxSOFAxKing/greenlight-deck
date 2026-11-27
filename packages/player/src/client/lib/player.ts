@@ -41,6 +41,11 @@ export default class xCloudPlayer {
 
     readonly options: Required<xCloudPlayerOptions>
 
+    /** The console ended the session (e.g. after inactivity). Called before the player is destroyed. */
+    onServerDisconnect?: (content?: string) => void
+    /** The console wants a message shown; resolve with the index of the chosen button. */
+    onSystemDialog?: (dialog: { title: string; text: string; buttons: string[]; primary: number; cancel: number }) => Promise<number>
+
     constructor(elementId: string, options: xCloudPlayerOptions = {}) {
         console.log('xCloudPlayer constructing...');
 

@@ -14,10 +14,14 @@ export default class MessageHandler {
     handle(data) {
         console.log('[MessageHandler] Handling:', data)
         switch(data.target){
-            case '/streaming/sessionLifetimeManagement/serverInitiatedDisconnect':
+            case '/streaming/sessionLifetimeManagement/serverInitiatedDisconnect': {
                 this.completeTransaction(data.id, '')
-                this._channel.getPlayer().destroy()
+                const player = this._channel.getPlayer()
+                // Tell the app first, so it can show what happened instead of a black screen.
+                try { player.onServerDisconnect?.(data.content) } catch(error) { console.error('[MessageHandler] onServerDisconnect failed:', error) }
+                player.destroy()
                 break
+            }
             
             case '/streaming/properties/titleinfo':
                 console.log('Title update:', data)
@@ -60,14 +64,32 @@ export default class MessageHandler {
         this._channel.send(transaction)
     }
 
-    handleMessage(data) {
-        const jsonData = JSON.parse(data.content)
-        console.log(jsonData)
-        if(confirm(jsonData.TitleText+'\n\n'+jsonData.ContentText)){
-            this.completeTransaction(data.id, { Result: 0 })
-        } else {
-            this.completeTransaction(data.id, { Result: 1 })
-            // this.cancelTransaction(data.id, '')
+    /**
+     * The console asks the client to show a message (e.g. an inactivity prompt).
+     * This used to call window.confirm(), which freezes the whole page until it
+     * is dismissed and can be invisible in fullscreen/Gaming Mode. Now the app
+     * shows its own dialog via player.onSystemDialog; without one, the primary
+     * button is chosen automatically.
+     */
+    async handleMessage(data) {
+        let jsonData: any = {}
+        try { jsonData = JSON.parse(data.content) } catch { /* keep defaults */ }
+        const labels = [jsonData.CommandLabel1, jsonData.CommandLabel2, jsonData.CommandLabel3].filter((l: any) => typeof l === 'string' && l.length > 0)
+        const dialog = {
+            title: jsonData.TitleText ?? '',
+            text: jsonData.ContentText ?? '',
+            buttons: labels.length ? labels : ['OK'],
+            primary: Number(jsonData.PrimaryCommandIndex ?? 0),
+            cancel: Number(jsonData.CancelCommandIndex ?? (labels.length > 1 ? 1 : 0)),
         }
+        console.log('[MessageHandler] System dialog from console:', JSON.stringify(dialog))
+        const player = this._channel.getPlayer()
+        let result = dialog.primary
+        try {
+            if(player.onSystemDialog) result = await player.onSystemDialog(dialog)
+        } catch(error) {
+            console.error('[MessageHandler] onSystemDialog failed:', error)
+        }
+        this.completeTransaction(data.id, { Result: result })
     }
 }

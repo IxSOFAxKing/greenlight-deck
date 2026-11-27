@@ -5,7 +5,7 @@ import { HintBar, Spinner } from '../components/ui'
 import { controller } from '../input/controller'
 import { useInputLayer } from '../input/layers'
 import { sound } from '../input/sound'
-import { StreamSession, type StreamStats, type StreamUpdate } from '../stream/session'
+import { StreamSession, type StreamStats, type StreamUpdate, type SystemDialog } from '../stream/session'
 import { useSettings } from '../state'
 
 const PLAYER_ID = 'gl-player'
@@ -24,6 +24,7 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
   const [stats, setStats] = useState<StreamStats | undefined>()
   const [attempt, setAttempt] = useState(0)
   const [reconnect, setReconnect] = useState<Reconnect | undefined>()
+  const [dialog, setDialog] = useState<{ dialog: SystemDialog; resolve: (choice: number) => void } | undefined>()
   const reconnectRef = useRef<Reconnect | undefined>(undefined)
   reconnectRef.current = reconnect
 
@@ -82,6 +83,10 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
         codecProfile: settings.codecProfile,
         elementId: PLAYER_ID,
         onUpdate,
+        onDialog: (d) => new Promise<number>(resolve => {
+          setOverlay(false)
+          setDialog({ dialog: d, resolve: (choice) => { setDialog(undefined); resolve(choice) } })
+        }),
       })
       sessionRef.current = session
       session.start()
@@ -98,10 +103,10 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
 
   // Controller goes to the game while playing (and the overlay is closed).
   useEffect(() => {
-    const streaming = playing && !overlay
+    const streaming = playing && !overlay && !dialog
     controller.setMode(streaming ? 'stream' : 'ui')
     return () => controller.setMode('ui')
-  }, [playing, overlay])
+  }, [playing, overlay, dialog])
 
   // Overlay combo (hold L3+R3, or Esc on a keyboard).
   const overlayOpen = useRef(false)
@@ -137,6 +142,7 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
   }
 
   const exit = () => {
+    dialog?.resolve(dialog.dialog.cancel)
     setReconnect(undefined)
     reconnectRef.current = undefined
     sound.back()
@@ -178,16 +184,18 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
 
       {status.phase === 'error' && (
         <div className="stream-status">
-          <h2>{status.recoverable ? `Lost connection to ${target.name}` : `Couldn't connect to ${target.name}`}</h2>
-          <p className="error-text wide">{status.message}</p>
+          <h2>{status.endedByConsole ? 'Stream ended by your Xbox' : status.recoverable ? `Lost connection to ${target.name}` : `Couldn't connect to ${target.name}`}</h2>
+          <p className={status.endedByConsole ? 'muted wide' : 'error-text wide'}>{status.message}</p>
           <div className="row">
-            <button className="btn btn-primary" data-nav data-autofocus onClick={() => setAttempt(n => n + 1)}>Try again</button>
+            <button className="btn btn-primary" data-nav data-autofocus onClick={() => setAttempt(n => n + 1)}>{status.endedByConsole ? 'Reconnect' : 'Try again'}</button>
             <button className="btn" data-nav onClick={exit}>Back</button>
           </div>
         </div>
       )}
 
       {playing && settings.showStats && !overlay && stats && <StatsHud stats={stats} />}
+
+      {dialog && <ConsoleDialog dialog={dialog.dialog} onChoose={dialog.resolve} />}
 
       {overlay && (
         <div className="overlay-backdrop">
@@ -240,3 +248,26 @@ function StatsHud({ stats, inline }: { stats: StreamStats; inline?: boolean }) {
   )
 }
 
+
+/** A message from the Xbox (shown over the stream; the controller drives it). */
+function ConsoleDialog({ dialog, onChoose }: { dialog: SystemDialog; onChoose: (choice: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useInputLayer(ref, (a) => {
+    if (a === 'back') { onChoose(dialog.cancel); return true }
+    if (a === 'menu' || a === 'lb' || a === 'rb') return true
+  })
+  return (
+    <div className="modal confirm console-dialog" ref={ref} role="alertdialog" aria-label={dialog.title || 'Message from your Xbox'}>
+      <div className="confirm-box">
+        <span className="muted small">Message from your Xbox</span>
+        {dialog.title && <h2>{dialog.title}</h2>}
+        {dialog.text && <p>{dialog.text}</p>}
+        <div className="row">
+          {dialog.buttons.map((label, i) => (
+            <button key={i} className={`btn ${i === dialog.primary ? 'btn-primary' : ''}`} data-nav data-autofocus={i === dialog.primary || undefined} onClick={() => onChoose(i)}>{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}

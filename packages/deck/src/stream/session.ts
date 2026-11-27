@@ -2,7 +2,7 @@
 // WebRTC SDP/ICE exchange -> playing. Signalling goes through the main
 // process (which holds the tokens); media flows straight to Greenlight's player.
 
-import xCloudPlayer from '@gl/player'
+import xCloudPlayer, { type SystemDialog } from '@gl/player'
 import Gamepad from '@gl/gamepad'
 import { call, log } from '../api'
 import { controller } from '../input/controller'
@@ -23,7 +23,11 @@ export interface StreamUpdate {
   waitSeconds?: number
   /** True when a stream that was playing dropped (worth reconnecting). */
   recoverable?: boolean
+  /** The console itself ended the session (usually after inactivity). */
+  endedByConsole?: boolean
 }
+
+export type { SystemDialog }
 
 export interface StreamStats {
   width: number
@@ -45,6 +49,8 @@ export interface StreamOptions {
   codecProfile: CodecProfile
   elementId: string
   onUpdate: (u: StreamUpdate) => void
+  /** Show a message from the console; resolve with the chosen button index. */
+  onDialog?: (dialog: SystemDialog) => Promise<number>
 }
 
 const PROVISION_TIMEOUT_MS = 120_000
@@ -130,6 +136,20 @@ export class StreamSession {
       codecProfile: this.opts.codecProfile,
     })
     this.player = player
+    player.onServerDisconnect = (content) => this.endedByConsole(content)
+    player.onSystemDialog = async (dialog) => {
+      log('info', 'stream', `Console message: "${dialog.title}" ${dialog.text ? `– ${dialog.text}` : ''} [${dialog.buttons.join(' / ')}]`)
+      if (!this.opts.onDialog) return dialog.primary
+      const wasPaused = this.inputPaused
+      this.setInputPaused(true)
+      try {
+        const choice = await this.opts.onDialog(dialog)
+        log('info', 'stream', `Console message answered: ${dialog.buttons[choice] ?? choice}`)
+        return choice
+      } finally {
+        if (!wasPaused) this.setInputPaused(false)
+      }
+    }
     player.init()
 
     player._peerConnection.addEventListener('connectionstatechange', () => {
@@ -182,7 +202,8 @@ export class StreamSession {
     let stalledFor = 0
     this.watchdog = setInterval(async () => {
       const pc = this.player?._peerConnection
-      if (!pc || this.phase !== 'playing') return
+      if (this.phase !== 'playing') return
+      if (!pc || pc.connectionState === 'closed') { this.lost('The stream stopped.'); return }
       try {
         const report = await pc.getStats()
         let decoded = -1
@@ -201,9 +222,24 @@ export class StreamSession {
     this.fail(new Error(message), this.everPlayed)
   }
 
+  private inputPaused = false
+
   /** Stop sending controller input to the Xbox (while the overlay is open). */
   setInputPaused(paused: boolean) {
+    this.inputPaused = paused
     if (this.gamepad) (this.gamepad as any)._isFocused = !paused
+  }
+
+  /** The console ended the session itself (most often after a while with no input). */
+  private endedByConsole(content?: string) {
+    if (this.stopped || this.phase === 'error') return
+    let reason = ''
+    try { const c = content ? JSON.parse(content) : undefined; reason = c?.reason ?? c?.Reason ?? c?.message ?? '' } catch { reason = content ?? '' }
+    log('warn', 'stream', `Console ended the session${reason ? `: ${reason}` : ''}`)
+    this.player = undefined // the streaming core destroys it right after this
+    this.teardown()
+    this.update({ phase: 'error', endedByConsole: true, recoverable: false,
+      message: 'Your Xbox ended the stream. This usually happens after a while with no controller input.' })
   }
 
   /** Tap a virtual Xbox-pad button, e.g. 'Nexus' for the Xbox/Guide button. */

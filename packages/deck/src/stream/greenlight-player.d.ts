@@ -20,8 +20,12 @@ declare module '@gl/player' {
     _remoteIsIpv6: boolean
   }
 
+  export interface SystemDialog { title: string; text: string; buttons: string[]; primary: number; cancel: number }
+
   export default class xCloudPlayer {
     constructor(elementId: string, options?: xCloudPlayerOptions)
+    onServerDisconnect?: (content?: string) => void
+    onSystemDialog?: (dialog: SystemDialog) => Promise<number>
     _peerConnection: RTCPeerConnection
     init(): void
     createOffer(): Promise<RTCSessionDescriptionInit>
