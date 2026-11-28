@@ -6,7 +6,7 @@ import { controller } from '../input/controller'
 import { useInputLayer } from '../input/layers'
 import { sound } from '../input/sound'
 import { StreamSession, type StreamStats, type StreamUpdate, type SystemDialog } from '../stream/session'
-import { useSettings } from '../state'
+import { useSettings, useToast } from '../state'
 
 const PLAYER_ID = 'gl-player'
 const MAX_RECONNECTS = 3
@@ -27,6 +27,10 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
   const [dialog, setDialog] = useState<{ dialog: SystemDialog; resolve: (choice: number) => void } | undefined>()
   const reconnectRef = useRef<Reconnect | undefined>(undefined)
   reconnectRef.current = reconnect
+  const toast = useToast()
+  // Whether you want the mic on (kept across reconnects), and whether it's live.
+  const wantMic = useRef(settings.micOnStart)
+  const [micLive, setMicLive] = useState(false)
 
   const playing = status.phase === 'playing'
 
@@ -100,6 +104,33 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
     // Settings are read once per attempt on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, attempt])
+
+  // Turn the mic on once playing (again after a reconnect) if you want it.
+  useEffect(() => {
+    if (!playing) { setMicLive(false); return }
+    if (!wantMic.current) return
+    const session = sessionRef.current
+    session?.setMic(true).then(setMicLive).catch((err) => {
+      wantMic.current = false
+      toast(`Microphone: ${err instanceof Error ? err.message : err}`)
+    })
+  }, [playing]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleMic = async () => {
+    const session = sessionRef.current
+    if (!session) return
+    const on = !session.isMicOn()
+    wantMic.current = on
+    try {
+      const live = await session.setMic(on)
+      setMicLive(live)
+      toast(live ? 'Microphone on' : 'Microphone off')
+    } catch (err) {
+      wantMic.current = false
+      setMicLive(false)
+      toast(`Microphone: ${err instanceof Error ? err.message : err}`)
+    }
+  }
 
   // Controller goes to the game while playing (and the overlay is closed).
   useEffect(() => {
@@ -194,6 +225,7 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
       )}
 
       {playing && settings.showStats && !overlay && stats && <StatsHud stats={stats} />}
+      {playing && micLive && !overlay && <div className="mic-hud" aria-label="Microphone on"><MicIcon /></div>}
 
       {dialog && <ConsoleDialog dialog={dialog.dialog} onChoose={dialog.resolve} />}
 
@@ -203,6 +235,7 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
             <h3>{target.name}</h3>
             <button className="overlay-item" data-nav data-autofocus onClick={resume}>Resume</button>
             <button className="overlay-item" data-nav onClick={xboxButton}>Press Xbox button</button>
+            <button className="overlay-item" data-nav onClick={toggleMic}>Microphone: {micLive ? 'On' : 'Off'}</button>
             <button className="overlay-item" data-nav onClick={() => update({ videoFit: settings.videoFit === 'fill' ? 'contain' : 'fill' })}>
               Picture: {settings.videoFit === 'fill' ? 'Fill screen' : 'Fit'}
             </button>
@@ -223,6 +256,10 @@ export function StreamScreen({ target, onExit }: { target: StreamTarget; onExit:
       )}
     </div>
   )
+}
+
+function MicIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
 }
 
 function Steps({ phase }: { phase: StreamUpdate['phase'] }) {

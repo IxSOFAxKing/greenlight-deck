@@ -23,6 +23,8 @@ export interface Settings {
   codecProfile: CodecProfile
   /** Rejoin automatically when the connection drops mid-game. */
   autoReconnect: boolean
+  /** Turn the microphone on when a stream starts (party and game chat). */
+  micOnStart: boolean
 }
 
 export const defaultSettings: Settings = {
@@ -37,6 +39,7 @@ export const defaultSettings: Settings = {
   maxBitrateMbps: 0,
   codecProfile: 'auto',
   autoReconnect: true,
+  micOnStart: false,
 }
 
 export type UpdateState =
@@ -113,6 +116,68 @@ export interface CloudTitle {
   description?: string
   genres?: string[]
   features?: string[]
+  /** Decimal Xbox title id (for achievements), when the catalog has it. */
+  xboxTitleId?: string
+  /** Filterable traits: multiplayer, coop, touch, kbm. */
+  tags?: CloudTag[]
+}
+
+export type CloudTag = 'multiplayer' | 'coop' | 'touch' | 'kbm'
+
+/** Per-account cloud preferences kept on this device. */
+export interface CloudPrefs {
+  favorites: string[]
+  /** titleId → when you last started it here (ms since epoch). */
+  played: Record<string, number>
+}
+
+export type PowerAction = 'off' | 'restart'
+
+export interface Friend {
+  xuid: string
+  gamertag: string
+  realName?: string
+  avatarUrl?: string
+  /** Online, Away or Offline. */
+  presence: 'Online' | 'Away' | 'Offline'
+  /** e.g. "Playing Forza Horizon 5" or "Last seen 2h ago: Xbox App". */
+  presenceText?: string
+  favorite?: boolean
+  gamerscore?: string
+}
+
+/** Your progress in one game (from your Xbox title history). */
+export interface GameProgress {
+  titleId: string
+  name: string
+  imageUrl?: string
+  lastPlayed?: string
+  earned: number
+  total: number
+  gamerscore: number
+  totalGamerscore: number
+  percent: number
+}
+
+export interface Achievement {
+  id: string
+  name: string
+  description: string
+  unlocked: boolean
+  unlockedAt?: string
+  gamerscore: number
+  iconUrl?: string
+  /** Share of players who unlocked it, 0-100. */
+  rarity?: number
+  secret?: boolean
+  /** 0-100 for achievements in progress. */
+  progress?: number
+}
+
+export interface TitleAchievements {
+  titleId: string
+  name?: string
+  achievements: Achievement[]
 }
 
 /** Extra info for a game's details page (from the public Store catalog). */
@@ -136,6 +201,7 @@ export interface TitleDetails {
   heroUrl?: string
   logoUrl?: string
   screenshots?: string[]
+  xboxTitleId?: string
 }
 
 export interface CloudLibrary {
@@ -180,12 +246,24 @@ export interface DeckApi {
 
   listConsoles(): Promise<XboxConsole[]>
   wakeConsole(id: string): Promise<void>
+  /** Turn a console off or restart it. */
+  powerConsole(id: string, action: PowerAction): Promise<void>
   /** Cached library when available (fast); pass refresh to fetch it fresh. */
   listCloudTitles(refresh?: boolean): Promise<CloudLibrary>
   /** Full details for a cloud game's details page, or null if unavailable. */
   cloudTitleDetails(productId: string): Promise<TitleDetails | null>
   /** Estimated xCloud queue time in seconds, or null if unknown. */
   cloudWaitTime(titleId: string): Promise<number | null>
+  getCloudPrefs(): Promise<CloudPrefs>
+  setFavorite(titleId: string, favorite: boolean): Promise<CloudPrefs>
+
+  /** Friends, online first. */
+  listFriends(): Promise<Friend[]>
+  /** Games you've played with achievement progress, most recent first. */
+  listGameProgress(): Promise<GameProgress[]>
+  /** Your progress in one game, or null if it has no achievements / isn't known. */
+  gameProgress(xboxTitleId: string): Promise<GameProgress | null>
+  titleAchievements(xboxTitleId: string): Promise<TitleAchievements>
 
   streamStart(kind: StreamKind, id: string, resolution: Resolution): Promise<StreamStartResult>
   streamStatus(handle: string): Promise<StreamStatus>

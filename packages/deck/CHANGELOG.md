@@ -2,6 +2,15 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.5.0
+- **Favorites**: press ≡ (Menu) on a cloud game, or Y on its page, to favorite it. Favorites get their own chip at the top of Cloud
+- **Recently played** now includes games you started from this app straight away, newest first
+- **Filter & sort** for Cloud: sort A to Z, by recently played or by publisher; filter by any genre and by features (multiplayer, co-op, touch controls, mouse & keyboard). Search also matches genres
+- **Microphone** for party and game chat: switch it in the in-game menu (hold L3 + R3), or turn on "Microphone at start" in Settings. A small mic icon shows while it's on
+- **Power controls**: press ≡ (Menu) on a console to wake it, restart it or turn it off (restart and turn off ask first)
+- **Friends** tab: who's online, what they're playing, and when offline friends were last seen
+- **Achievements** tab: your progress in every game you've played; press A for the full list with unlock dates and rarity. A cloud game's page shows your progress too
+
 ## 0.4.5
 - Greenlight Deck now has its own artwork in your Steam library: cover, wide banner, header background and logo
 - It's added automatically the first time you open the app after adding it to Steam. If it doesn't show straight away, restart Steam (or the Deck)

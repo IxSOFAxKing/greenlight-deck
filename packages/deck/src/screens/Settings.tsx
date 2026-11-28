@@ -28,6 +28,8 @@ const rows: Row<any>[] = [
     options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
   { key: 'vibration', label: 'Vibration', help: 'Pass rumble from the game to your controller.',
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
+  { key: 'micOnStart', label: 'Microphone at start', help: 'Turn on the mic for party and game chat when a stream starts. You can switch it any time from the in-game menu (hold L3 + R3).',
+    options: [{ value: false, label: 'Off' }, { value: true, label: 'On' }] },
   { key: 'autoReconnect', label: 'Reconnect automatically', help: 'If Wi-Fi drops mid-game, rejoin the console up to 3 times. Your game keeps running on the Xbox meanwhile.',
     options: [{ value: true, label: 'On' }, { value: false, label: 'Off' }] },
   { key: 'autoWake', label: 'Wake console automatically', help: 'Send a wake signal to a sleeping Xbox before connecting.',

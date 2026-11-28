@@ -91,6 +91,17 @@ app.whenReady().then(async () => {
     await key('Escape'); await wait(500)
     check('B closes details', !(await has('.detail-modal')))
 
+    // Favorites, friends and achievements
+    await key('M'); await wait(400)
+    check('Menu adds a favorite', (await js(`document.querySelectorAll('.poster-fav').length`)) >= 1)
+    await key('E'); await wait(1200)
+    check('friends tab lists friends', (await js(`document.querySelectorAll('.friend').length`)) > 0)
+    await key('E'); await wait(1200)
+    check('achievements tab lists games', (await js(`document.querySelectorAll('.game-progress').length`)) > 0)
+    await key('Return'); await wait(1000)
+    check('A opens the achievement list', (await js(`document.querySelectorAll('.ach').length`)) > 0)
+    await key('Escape'); await wait(500)
+
     // Settings + log viewer
     await key('E'); await wait(800)
     check('settings rows render', (await js(`document.querySelectorAll('.setting-row').length`)) >= 10)
@@ -105,7 +116,7 @@ app.whenReady().then(async () => {
     check('debug log closes', !(await has('.log-panel')))
 
     // Stream screen error path (mock streams always fail)
-    await key('Q'); await key('Q'); await wait(800)
+    await key('Q', 4); await wait(800)
     await key('Return'); await wait(7000)
     check('stream error view shows', await has('.stream-status .error-text'))
     await key('Escape'); await wait(800)

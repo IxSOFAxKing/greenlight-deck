@@ -242,6 +242,60 @@ export class StreamSession {
       message: 'Your Xbox ended the stream. This usually happens after a while with no controller input.' })
   }
 
+  private mic: MediaStream | undefined
+
+  isMicOn() { return !!this.mic }
+
+  /**
+   * Send the handheld's microphone to the Xbox (party and game chat). The audio
+   * channel is already two-way, so this only swaps the outgoing track: no new
+   * connection handshake is needed. Returns whether the mic is now live.
+   */
+  async setMic(on: boolean): Promise<boolean> {
+    const pc = this.player?._peerConnection
+    const tr = pc?.getTransceivers().find(t => t.receiver.track?.kind === 'audio')
+    if (!on) {
+      try { await tr?.sender.replaceTrack(null) } catch { /* connection already gone */ }
+      this.mic?.getTracks().forEach(t => t.stop())
+      if (this.mic) log('info', 'stream', 'Microphone off')
+      this.mic = undefined
+      return false
+    }
+    if (this.mic) return true
+    if (!tr) throw new Error('The stream is not ready yet.')
+    const direction = tr.currentDirection ?? tr.direction
+    if (direction === 'recvonly' || direction === 'inactive') {
+      log('warn', 'stream', `Microphone: the Xbox accepted audio as "${direction}", so it won't hear voice on this connection`)
+      throw new Error("Your Xbox didn't accept voice on this connection.")
+    }
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      })
+    } catch (err) {
+      log('warn', 'stream', 'Microphone unavailable:', err)
+      throw new Error(err instanceof DOMException && err.name === 'NotFoundError' ? 'No microphone found.' : "Couldn't open the microphone.")
+    }
+    if (this.stopped || !this.player) { stream.getTracks().forEach(t => t.stop()); return false }
+    const track = stream.getAudioTracks()[0]
+    await tr.sender.replaceTrack(track)
+    this.mic = stream
+    log('info', 'stream', `Microphone on: ${track.label || 'default input'} (audio ${direction})`)
+    setTimeout(() => this.logMicStats(), 5000)
+    return true
+  }
+
+  private async logMicStats() {
+    if (!this.mic || !this.player) return
+    try {
+      const report = await this.player._peerConnection.getStats()
+      report.forEach((r: any) => {
+        if (r.type === 'outbound-rtp' && r.kind === 'audio') log('info', 'stream', `Microphone: ${r.packetsSent ?? 0} audio packets sent so far`)
+      })
+    } catch { /* stats unavailable */ }
+  }
+
   /** Tap a virtual Xbox-pad button, e.g. 'Nexus' for the Xbox/Guide button. */
   pressButton(button: string) {
     if (!this.gamepad) return
@@ -268,6 +322,8 @@ export class StreamSession {
   }
 
   private teardown() {
+    this.mic?.getTracks().forEach(t => t.stop())
+    this.mic = undefined
     clearInterval(this.watchdog)
     clearTimeout(this.dropTimer)
     this.watchdog = undefined

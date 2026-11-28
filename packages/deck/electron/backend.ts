@@ -6,8 +6,8 @@ import { appRouter, createCallerFactory } from '@greenlight/platform'
 import XboxApiClient from 'xbox-webapi'
 import { randomUUID } from 'node:crypto'
 import type {
-  AccountSummary, AuthState, CloudLibrary, CloudTitle, DeviceCodePrompt, TitleDetails, Profile, Resolution, Settings,
-  StreamKind, StreamStartResult, StreamStatus, XboxConsole,
+  Achievement, AccountSummary, AuthState, CloudLibrary, CloudPrefs, CloudTag, CloudTitle, DeviceCodePrompt, Friend, GameProgress,
+  PowerAction, TitleAchievements, TitleDetails, Profile, Resolution, Settings, StreamKind, StreamStartResult, StreamStatus, XboxConsole,
 } from '../shared/api'
 import { defaultSettings } from '../shared/api'
 import { Store } from './store'
@@ -48,7 +48,7 @@ const TOKEN_MAX_AGE_MS = 45 * 60 * 1000
 const CLOUD_CACHE_FRESH_MS = 60 * 60 * 1000
 
 /** Bump when the shape of cached titles changes, so old caches refresh. */
-const CLOUD_CACHE_VERSION = 3
+const CLOUD_CACHE_VERSION = 4
 
 /**
  * Ask Microsoft's store image CDN for a right-sized image instead of the
@@ -101,6 +101,33 @@ function capabilityLabel(a: any): string | undefined {
   return max > 1 ? `${label} (${min > 1 ? min : 2}-${max})` : label
 }
 
+/** Filterable traits from catalog attributes and xCloud's supported input types. */
+function cloudTags(attrNames: string[], inputTypes: string[]): CloudTag[] {
+  const tags = new Set<CloudTag>()
+  for (const n of attrNames) {
+    if (/coop/i.test(n)) tags.add('coop')
+    if (/multiplayer|multiPlayer|\bMP\b|CrossGenMP/i.test(n)) tags.add('multiplayer')
+    if (/touch/i.test(n)) tags.add('touch')
+    if (/mouse|keyboard|mkb/i.test(n)) tags.add('kbm')
+  }
+  for (const t of inputTypes) {
+    if (/touch/i.test(t)) tags.add('touch')
+    if (/mkb|mouse|keyboard/i.test(t)) tags.add('kbm')
+  }
+  return [...tags]
+}
+
+/** The decimal Xbox title id from a catalog entry, in whichever form it comes. */
+function xboxTitleIdOf(c: any): string | undefined {
+  if (!c) return undefined
+  const direct = c.XboxTitleId ?? c.xboxTitleId ?? c.XboxTitleIds?.[0]
+  if (direct) return String(direct)
+  const alt = (c.AlternateIds ?? []).find((a: any) => /xboxtitleid/i.test(a?.IdType ?? ''))
+  if (alt?.Value) return String(alt.Value)
+  const prop = c.Properties?.XboxTitleId ?? c.DisplaySkuAvailabilities?.[0]?.Sku?.Properties?.XboxTitleId
+  return prop ? String(prop) : undefined
+}
+
 /**
  * Catalog entries name their images in a few different ways (Image_Poster,
  * Image_BoxArt, an Images array with ImagePurpose…). Try each purpose in order.
@@ -121,6 +148,10 @@ function pickImage(c: any, purposes: string[]): string | undefined {
     }
   }
   return undefined
+}
+
+function attrNames(v: unknown): string[] {
+  return Array.isArray(v) ? v.map(a => typeof a === 'string' ? a : String(a?.Name ?? a?.name ?? '')).filter(Boolean) : []
 }
 
 const POSTER_PURPOSES = ['Poster', 'BoxArt', 'Tile', 'FeaturePromotionalSquareArt', 'BrandedKeyArt']
@@ -458,6 +489,147 @@ export class Backend {
     await client.providers.smartglass.powerOn(id)
   }
 
+  async powerConsole(id: string, action: PowerAction) {
+    await this.ensureTokens()
+    const Client = ((XboxApiClient as any).default ?? XboxApiClient) as any
+    const client = new Client({ uhs: this.webToken!.uhs, token: this.webToken!.token })
+    const res = await client.providers.smartglass._sendCommand(id, 'Power', action === 'off' ? 'TurnOff' : 'Reboot')
+    const status = res?.data?.status
+    console.info(`[console] power ${action} ${id}: ${status?.errorCode ?? 'sent'}`)
+    if (status?.errorCode && status.errorCode !== 'OK') throw new Error(status.errorMessage || status.errorCode)
+  }
+
+  // ---------- Cloud favorites and recently played (kept on this device, per account) ----------
+
+  private prefsKey() { return `cloudPrefs:${this.activeId}` }
+
+  getCloudPrefs(): CloudPrefs {
+    const saved = this.store.get(this.prefsKey()) as Partial<CloudPrefs> | undefined
+    return { favorites: saved?.favorites ?? [], played: saved?.played ?? {} }
+  }
+
+  setFavorite(titleId: string, favorite: boolean): CloudPrefs {
+    const prefs = this.getCloudPrefs()
+    const set = new Set(prefs.favorites)
+    if (favorite) set.add(titleId)
+    else set.delete(titleId)
+    const next = { ...prefs, favorites: [...set] }
+    this.store.set(this.prefsKey(), next)
+    return next
+  }
+
+  private markPlayed(titleId: string) {
+    const prefs = this.getCloudPrefs()
+    const played = { ...prefs.played, [titleId]: Date.now() }
+    // Keep the 50 most recent.
+    const kept = Object.fromEntries(Object.entries(played).sort((a, b) => b[1] - a[1]).slice(0, 50))
+    this.store.set(this.prefsKey(), { ...prefs, played: kept })
+  }
+
+  // ---------- Friends and achievements (Xbox network) ----------
+
+  private async xbl(host: string, path: string, contract: string): Promise<any> {
+    await this.ensureTokens()
+    const res = await fetch(`https://${host}${path}`, {
+      headers: {
+        Authorization: `XBL3.0 x=${this.webToken!.uhs};${this.webToken!.token}`,
+        'x-xbl-contract-version': contract,
+        'Accept-Language': language(),
+        Accept: 'application/json',
+      },
+    })
+    if (!res.ok) throw new Error(`Xbox network returned HTTP ${res.status} (${host})`)
+    return res.json()
+  }
+
+  async listFriends(): Promise<Friend[]> {
+    const data = await this.xbl('peoplehub.xboxlive.com', '/users/me/people/social/decoration/detail,presenceDetail', '5')
+    const people: any[] = data?.people ?? []
+    const rank = { Online: 0, Away: 1, Offline: 2 } as const
+    const friends: Friend[] = people.map(p => {
+      const state = String(p.presenceState ?? 'Offline')
+      const presence: Friend['presence'] = state === 'Online' ? 'Online' : state === 'Away' ? 'Away' : 'Offline'
+      return {
+        xuid: String(p.xuid),
+        gamertag: p.modernGamertag ? `${p.modernGamertag}${p.modernGamertagSuffix ? `#${p.modernGamertagSuffix}` : ''}` : (p.gamertag ?? p.displayName ?? 'Xbox player'),
+        realName: p.realName || undefined,
+        avatarUrl: absolute(p.displayPicRaw),
+        presence,
+        presenceText: p.presenceText || undefined,
+        favorite: !!p.isFavorite,
+        gamerscore: p.gamerScore ? String(p.gamerScore) : undefined,
+      }
+    })
+    friends.sort((a, b) => rank[a.presence] - rank[b.presence] || Number(!!b.favorite) - Number(!!a.favorite) || a.gamertag.localeCompare(b.gamertag))
+    console.info(`[social] ${friends.length} friends, ${friends.filter(f => f.presence !== 'Offline').length} online`)
+    return friends
+  }
+
+  private toProgress(t: any): GameProgress {
+    const a = t?.achievement ?? {}
+    return {
+      titleId: String(t.titleId),
+      name: t.name ?? 'Game',
+      imageUrl: sizedImage(absolute(t.displayImage), 300, 300),
+      lastPlayed: t.titleHistory?.lastTimePlayed,
+      earned: Number(a.currentAchievements ?? 0),
+      total: Number(a.totalAchievements ?? 0),
+      gamerscore: Number(a.currentGamerscore ?? 0),
+      totalGamerscore: Number(a.totalGamerscore ?? 0),
+      percent: Math.round(Number(a.progressPercentage ?? 0)),
+    }
+  }
+
+  async listGameProgress(): Promise<GameProgress[]> {
+    await this.ensureTokens()
+    const data = await this.xbl('titlehub.xboxlive.com', `/users/xuid(${this.xuid ?? this.activeId})/titles/titlehistory/decoration/achievement,image`, '2')
+    const list = (data?.titles ?? []).map((t: any) => this.toProgress(t)).filter((g: GameProgress) => g.totalGamerscore > 0 || g.total > 0)
+    console.info(`[achievements] ${list.length} games with achievements`)
+    return list
+  }
+
+  async gameProgress(xboxTitleId: string): Promise<GameProgress | null> {
+    await this.ensureTokens()
+    try {
+      const data = await this.xbl('titlehub.xboxlive.com', `/users/xuid(${this.xuid ?? this.activeId})/titles/titleid(${encodeURIComponent(xboxTitleId)})/decoration/achievement,image`, '2')
+      const t = data?.titles?.[0]
+      if (!t) return null
+      const g = this.toProgress(t)
+      return g.totalGamerscore > 0 || g.total > 0 ? g : null
+    } catch (err) {
+      console.warn(`[achievements] progress for ${xboxTitleId}:`, errorMessage(err))
+      return null
+    }
+  }
+
+  async titleAchievements(xboxTitleId: string): Promise<TitleAchievements> {
+    await this.ensureTokens()
+    const data = await this.xbl('achievements.xboxlive.com', `/users/xuid(${this.xuid ?? this.activeId})/achievements?titleId=${encodeURIComponent(xboxTitleId)}&maxItems=1000`, '2')
+    const raw: any[] = data?.achievements ?? []
+    const achievements: Achievement[] = raw.map(a => {
+      const unlocked = a.progressState === 'Achieved'
+      const req = a.progression?.requirements?.[0]
+      const target = Number(req?.target ?? 0)
+      const current = Number(req?.current ?? 0)
+      const secret = !!a.isSecret && !unlocked
+      return {
+        id: String(a.id),
+        name: secret ? 'Secret achievement' : (a.name ?? ''),
+        description: unlocked ? (a.description || a.lockedDescription || '') : (a.lockedDescription || (secret ? 'Keep playing to reveal it.' : a.description) || ''),
+        unlocked,
+        unlockedAt: unlocked ? a.progression?.timeUnlocked : undefined,
+        gamerscore: Number((a.rewards ?? []).find((r: any) => r?.type === 'Gamerscore')?.value ?? 0),
+        iconUrl: secret ? undefined : absolute((a.mediaAssets ?? []).find((m: any) => m?.type === 'Icon')?.url),
+        rarity: a.rarity?.currentPercentage !== undefined ? Number(a.rarity.currentPercentage) : undefined,
+        secret,
+        progress: !unlocked && target > 1 && current > 0 ? Math.min(99, Math.round(current / target * 100)) : undefined,
+      }
+    })
+    achievements.sort((x, y) => Number(y.unlocked) - Number(x.unlocked)
+      || (x.unlocked ? String(y.unlockedAt ?? '').localeCompare(String(x.unlockedAt ?? '')) : (y.progress ?? 0) - (x.progress ?? 0) || (y.rarity ?? 0) - (x.rarity ?? 0)))
+    return { titleId: xboxTitleId, name: raw[0]?.titleAssociations?.[0]?.name, achievements }
+  }
+
   // ---------- Cloud library ----------
 
   /**
@@ -525,6 +697,7 @@ export class Backend {
         productId: r.details?.productId,
         name: r.details?.name ?? r.titleId,
         recent: recentIds.has(r.titleId),
+        tags: cloudTags([], r.details?.supportedInputTypes ?? []),
       })
     }
 
@@ -571,6 +744,8 @@ export class Backend {
         description: c?.ProductDescriptionShort ?? c?.ProductDescription,
         genres: [...new Set(strings(c?.Categories ?? c?.LocalizedCategories ?? c?.Category))].slice(0, 4),
         features: strings(c?.Attributes).slice(0, 6),
+        xboxTitleId: xboxTitleIdOf(c),
+        tags: [...new Set([...(t.tags ?? []), ...cloudTags(attrNames(c?.Attributes), [])])],
       }
     }).sort((a, b) => Number(!!b.recent) - Number(!!a.recent) || a.name.localeCompare(b.name))
     const needed = titles.filter(t => !t.posterUrl).length
@@ -617,7 +792,7 @@ export class Backend {
 
   /** Fill in posters/logos the Game Pass catalog didn't have, from the Store catalog. */
   private async fillMissingArt(titles: CloudTitle[]) {
-    const missing = titles.filter(t => t.productId && (!t.posterUrl || !t.logoUrl || !t.heroUrl))
+    const missing = titles.filter(t => t.productId && (!t.posterUrl || !t.logoUrl || !t.heroUrl || !t.xboxTitleId))
     if (!missing.length) return 0
     let filled = 0
     const chunks: CloudTitle[][] = []
@@ -633,6 +808,7 @@ export class Backend {
           if (!t.imageUrl && (d.squareUrl ?? d.posterUrl)) t.imageUrl = sizedImage(d.squareUrl ?? d.posterUrl, 300, 300)
           if (!t.logoUrl && d.logoUrl) t.logoUrl = sizedImage(d.logoUrl, 800, 400)
           if (!t.heroUrl && d.heroUrl) t.heroUrl = sizedImage(d.heroUrl, 1600, 900)
+          if (!t.xboxTitleId && d.xboxTitleId) t.xboxTitleId = d.xboxTitleId
           this.detailsCache.set(t.productId!, d)
         }
       } catch (err) {
@@ -676,6 +852,7 @@ export class Backend {
 
     const handle = randomUUID()
     this.sessions.set(handle, { kind, token: tok, config, sessionPath: res.sessionPath })
+    if (kind === 'cloud') this.markPlayed(id)
     return { handle, sessionPath: res.sessionPath }
   }
 
@@ -775,5 +952,6 @@ function parseStoreProduct(p: any): TitleDetails {
     heroUrl: first('SuperHeroArt', 'Hero', 'TitledHeroArt'),
     logoUrl: first('Logo'),
     screenshots: byPurpose('Screenshot').map(i => absolute(i.Uri)!).filter(Boolean).slice(0, 10),
+    xboxTitleId: xboxTitleIdOf(p),
   }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AuthState, CloudTitle, XboxConsole } from '../../shared/api'
+import type { AuthState, CloudTitle, PowerAction, XboxConsole } from '../../shared/api'
 import type { StreamTarget } from '../App'
 import { call } from '../api'
 import { ConsoleArt, Glyph, HintBar, Spinner, consoleLabel, powerLabel } from '../components/ui'
@@ -11,8 +11,11 @@ import { useToast, useUpdate } from '../state'
 import { SettingsTab } from './Settings'
 import { Avatar } from './Profiles'
 import { CloudTab, type CloudControls } from './Cloud'
+import { AchievementsTab, FriendsTab } from './Social'
 
-type Tab = 'consoles' | 'cloud' | 'settings'
+type Tab = 'consoles' | 'cloud' | 'friends' | 'achievements' | 'settings'
+
+const TAB_LABELS: Record<Tab, string> = { consoles: 'My Xbox', cloud: 'Cloud', friends: 'Friends', achievements: 'Achievements', settings: 'Settings' }
 
 interface Props {
   auth: AuthState
@@ -24,7 +27,7 @@ interface Props {
 export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  const tabs: Tab[] = auth.hasCloud ? ['consoles', 'cloud', 'settings'] : ['consoles', 'settings']
+  const tabs: Tab[] = auth.hasCloud ? ['consoles', 'cloud', 'friends', 'achievements', 'settings'] : ['consoles', 'friends', 'achievements', 'settings']
   const [tab, setTab] = useState<Tab>('consoles')
   const toast = useToast()
   const cloudControls = useRef<CloudControls | undefined>(undefined)
@@ -33,6 +36,16 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
 
   const consoles = useLoader(() => call('listConsoles'))
   const cloud = useCloudLibrary(auth.hasCloud, tab === 'cloud')
+  const friends = useLoader(() => call('listFriends'), tab === 'friends')
+  const progress = useLoader(() => call('listGameProgress'), tab === 'achievements')
+  const [powerFor, setPowerFor] = useState<XboxConsole | undefined>()
+
+  // Friends' status changes often: refresh when you come back to the tab.
+  const lastTab = useRef(tab)
+  useEffect(() => {
+    if (tab === 'friends' && lastTab.current !== 'friends' && friends.data) friends.reload()
+    lastTab.current = tab
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const switchTab = (delta: number) => {
     const i = tabs.indexOf(tab)
@@ -57,7 +70,7 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
       }
     })
     return () => cancelAnimationFrame(t)
-  }, [consoles.data, cloud.data])
+  }, [consoles.data, cloud.data, friends.data, progress.data])
 
   const focusedConsole = (): XboxConsole | undefined => {
     const id = (document.activeElement as HTMLElement | null)?.dataset.consoleId
@@ -74,6 +87,16 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
     }
   }
 
+  const power = async (c: XboxConsole, action: PowerAction) => {
+    try {
+      await call('powerConsole', c.id, action)
+      toast(action === 'off' ? `Turning off ${c.name}` : `Restarting ${c.name}`)
+      setTimeout(consoles.reload, action === 'off' ? 8000 : 45000)
+    } catch (err) {
+      toast(`Couldn't ${action === 'off' ? 'turn off' : 'restart'} ${c.name}: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
   const streamConsole = (c: XboxConsole) => onStream({ kind: 'home', id: c.id, name: c.name, wake: c.powerState !== 'On' })
 
   useInputLayer(ref, (action) => {
@@ -83,9 +106,17 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
     if (action === 'y') {
       if (tab === 'consoles') consoles.reload()
       if (tab === 'cloud') cloud.refresh()
+      if (tab === 'friends') friends.reload()
+      if (tab === 'achievements') progress.reload()
       return true
     }
     if (action === 'x' && tab === 'cloud') { cloudControls.current?.openSearch(); return true }
+    if (action === 'menu' && tab === 'cloud') { cloudControls.current?.toggleFavorite(); return true }
+    if (action === 'menu' && tab === 'consoles') {
+      const c = focusedConsole()
+      if (c) setPowerFor(c)
+      return true
+    }
     if (action === 'x' && tab === 'consoles') {
       const c = focusedConsole()
       if (c) wake(c)
@@ -101,13 +132,17 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
       }
     }
     if (action === 'back') return true
-  }, !hidden)
+  }, !hidden && !powerFor)
 
   const hints: Hint[] = tab === 'consoles'
-    ? [{ glyph: 'A', label: 'Stream' }, { glyph: 'X', label: 'Wake' }, { glyph: 'Y', label: 'Refresh', onClick: consoles.reload }]
+    ? [{ glyph: 'A', label: 'Stream' }, { glyph: 'X', label: 'Wake' }, { glyph: 'Menu', label: 'Power' }, { glyph: 'Y', label: 'Refresh', onClick: consoles.reload }]
     : tab === 'cloud'
-      ? [{ glyph: 'A', label: 'Details' }, { glyph: 'X', label: 'Search', onClick: () => cloudControls.current?.openSearch() }, { glyph: 'Y', label: 'Refresh', onClick: cloud.refresh }]
-      : [{ glyph: 'A', label: 'Change' }]
+      ? [{ glyph: 'A', label: 'Details' }, { glyph: 'Menu', label: 'Favorite', onClick: () => cloudControls.current?.toggleFavorite() }, { glyph: 'X', label: 'Search', onClick: () => cloudControls.current?.openSearch() }, { glyph: 'Y', label: 'Refresh', onClick: cloud.refresh }]
+      : tab === 'friends'
+        ? [{ glyph: 'Y', label: 'Refresh', onClick: friends.reload }]
+        : tab === 'achievements'
+          ? [{ glyph: 'A', label: 'Achievements' }, { glyph: 'Y', label: 'Refresh', onClick: progress.reload }]
+          : [{ glyph: 'A', label: 'Change' }]
 
   return (
     <div className="screen home" ref={ref} style={hidden ? { visibility: 'hidden' } : undefined}>
@@ -117,7 +152,7 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
           <span className="tab-glyph" onClick={() => switchTab(-1)}><Glyph name="LB" /></span>
           {tabs.map(t => (
             <button key={t} className={`tab ${t === tab ? 'active' : ''}`} onClick={() => setTab(t)} tabIndex={-1}>
-              {t === 'consoles' ? 'My Xbox' : t === 'cloud' ? 'Cloud' : 'Settings'}
+              {TAB_LABELS[t]}
               {t === 'settings' && updateBadge && <span className="badge-dot" aria-label="Update available" />}
             </button>
           ))}
@@ -134,9 +169,16 @@ export function HomeScreen({ auth, onStream, hidden, onProfiles }: Props) {
 
       <main className="content" ref={contentRef}>
         {tab === 'consoles' && <ConsolesTab state={consoles} onStream={streamConsole} onWake={wake} />}
-        {tab === 'cloud' && <CloudTab state={cloud} controls={cloudControls} onPlay={t => onStream({ kind: 'cloud', id: t.titleId, name: t.name })} />}
+        {tab === 'cloud' && <CloudTab state={cloud} controls={cloudControls} visible={!hidden} onPlay={t => onStream({ kind: 'cloud', id: t.titleId, name: t.name })} />}
+        {tab === 'friends' && <FriendsTab state={friends} />}
+        {tab === 'achievements' && <AchievementsTab state={progress} />}
         {tab === 'settings' && <SettingsTab onProfiles={onProfiles} gamertag={auth.profile?.gamertag} />}
       </main>
+
+      {powerFor && <PowerMenu console={powerFor} onClose={() => setPowerFor(undefined)}
+        onWake={() => { const c = powerFor; setPowerFor(undefined); wake(c) }}
+        onStream={() => { const c = powerFor; setPowerFor(undefined); streamConsole(c) }}
+        onPower={(a) => { const c = powerFor; setPowerFor(undefined); power(c, a) }} />}
 
       <HintBar hints={hints} left={<span className="muted small"><Glyph name="View" /> Profiles · Hold <Glyph name="L3R3" /> in-game for the menu</span>} />
     </div>
@@ -180,10 +222,60 @@ function ConsolesTab({ state, onStream, onWake }: {
             <div className="console-actions">
               <span><Glyph name="A" /> {c.powerState === 'On' ? 'Stream' : 'Wake & stream'}</span>
               {c.powerState !== 'On' && <span onClick={e => { e.stopPropagation(); onWake(c) }}><Glyph name="X" /> Wake</span>}
+              <span><Glyph name="Menu" /> Power</span>
             </div>
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** Console power options: stream, wake, restart, turn off (the last two ask first). */
+function PowerMenu({ console: c, onClose, onWake, onStream, onPower }: {
+  console: XboxConsole
+  onClose: () => void
+  onWake: () => void
+  onStream: () => void
+  onPower: (a: PowerAction) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [confirm, setConfirm] = useState<PowerAction | undefined>()
+  useInputLayer(ref, (a) => {
+    if (a === 'back') { if (confirm) setConfirm(undefined); else onClose(); return true }
+    if (a === 'menu') { onClose(); return true }
+    if (a === 'lb' || a === 'rb' || a === 'view' || a === 'x' || a === 'y') return true
+  })
+  const on = c.powerState === 'On'
+  return (
+    <div className="modal confirm" ref={ref} role="dialog" aria-label={`${c.name} power`}>
+      <div className="confirm-box power-box" key={confirm ?? 'menu'}>
+        <div className="console-art-wrap small"><ConsoleArt type={c.consoleType} /></div>
+        {confirm ? (
+          <>
+            <h2>{confirm === 'off' ? `Turn off ${c.name}?` : `Restart ${c.name}?`}</h2>
+            <p className="muted">{confirm === 'off'
+              ? 'Anyone playing on it will be signed out. If it is set to Sleep, you can wake it from here later.'
+              : 'Anyone playing on it will lose unsaved progress. It takes about a minute to come back.'}</p>
+            <div className="row">
+              <button className="btn" data-nav data-autofocus onClick={() => setConfirm(undefined)}>Cancel</button>
+              <button className="btn btn-danger" data-nav onClick={() => onPower(confirm)}>{confirm === 'off' ? 'Turn off' : 'Restart'}</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2>{c.name}</h2>
+            <p className="muted">{powerLabel(c.powerState).text}</p>
+            <div className="power-actions">
+              <button className="overlay-item" data-nav data-autofocus onClick={onStream}>{on ? 'Stream' : 'Wake & stream'}</button>
+              {!on && <button className="overlay-item" data-nav onClick={onWake}>Wake up</button>}
+              {on && <button className="overlay-item" data-nav onClick={() => setConfirm('restart')}>Restart</button>}
+              {on && <button className="overlay-item danger" data-nav onClick={() => setConfirm('off')}>Turn off</button>}
+              <button className="overlay-item" data-nav onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

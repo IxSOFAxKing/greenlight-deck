@@ -1,6 +1,6 @@
 // Mock backend used only when the UI runs in a plain browser (yarn preview:ui).
 // Lets you design and test controller navigation without an Xbox account.
-import type { AccountSummary, AuthState, CloudTitle, DeckBridge, Settings, UpdateStatus, XboxConsole } from '../shared/api'
+import type { Achievement, AccountSummary, AuthState, CloudPrefs, CloudTag, CloudTitle, DeckBridge, Friend, GameProgress, Settings, UpdateStatus, XboxConsole } from '../shared/api'
 import { defaultSettings } from '../shared/api'
 
 export function createMockBridge(): DeckBridge {
@@ -47,7 +47,31 @@ export function createMockBridge(): DeckBridge {
     titleId: `MOCK${i}`, productId: `PROD${i}`, name, recent: i < 4, publisher: 'Sample Studio', genres: genres[i],
     description: `${name} is a sample game used to preview the cloud library on your handheld.`,
     features: i % 2 ? ['Touch controls', 'Online multiplayer'] : ['4K Ultra HD'],
+    xboxTitleId: i % 4 === 3 ? undefined : String(1000000 + i),
+    tags: ([['multiplayer', 'touch'], ['coop'], [], ['multiplayer', 'coop', 'kbm']] as CloudTag[][])[i % 4],
     ...mockArt(name, i),
+  }))
+  let prefs: CloudPrefs = { favorites: ['MOCK1', 'MOCK6'], played: { MOCK3: Date.now() - 3600_000, MOCK7: Date.now() - 86400_000 } }
+
+  const friendNames = ['RallyQueen', 'CouchCoop', 'NightOwlKid', 'PixelPilot', 'LagSlayer', 'QuietStorm', 'TacoTuesday', 'SneakyPete']
+  const friends: Friend[] = friendNames.map((g, i) => ({
+    xuid: `25${i}`, gamertag: g, realName: i === 0 ? 'Sam Rivera' : undefined,
+    presence: i < 3 ? 'Online' : i === 3 ? 'Away' : 'Offline',
+    presenceText: i === 0 ? 'Turbo Circuit' : i === 1 ? 'Home' : i === 2 ? 'Starfall Odyssey' : i === 3 ? 'Away' : `Last seen ${i}h ago: Xbox App`,
+    favorite: i === 0 || i === 4, gamerscore: String(25000 - i * 2100),
+  }))
+  const progress: GameProgress[] = names.slice(0, 9).map((name, i) => ({
+    titleId: String(1000000 + i), name, imageUrl: titles[i].imageUrl,
+    lastPlayed: new Date(Date.now() - i * 86400_000 * 3).toISOString(),
+    earned: [12, 30, 4, 50, 0, 22, 9, 41, 3][i], total: 50, gamerscore: [240, 600, 80, 1000, 0, 440, 180, 820, 60][i], totalGamerscore: 1000,
+    percent: [24, 60, 8, 100, 0, 44, 18, 82, 6][i],
+  }))
+  const achievementList = (n: number): Achievement[] => Array.from({ length: 24 }, (_, k) => ({
+    id: String(k), name: k === 20 ? 'Secret achievement' : ['First Steps', 'Speed Demon', 'Collector', 'No Scratch', 'Night Rider', 'Crew Chief'][k % 6] + (k >= 6 ? ` ${Math.floor(k / 6) + 1}` : ''),
+    description: k === 20 ? 'Keep playing to reveal it.' : 'Finish a run without crashing on any track in the mountains.',
+    unlocked: k < n, unlockedAt: k < n ? new Date(Date.now() - k * 86400_000).toISOString() : undefined,
+    gamerscore: [10, 20, 30, 50, 100][k % 5], rarity: [62.1, 34.5, 12.2, 4.8, 1.3][k % 5], secret: k === 20,
+    progress: k === n || k === n + 1 ? 40 + k : undefined,
   }))
 
   const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -73,6 +97,16 @@ export function createMockBridge(): DeckBridge {
     saveSettings: async (s: Settings) => (settings = s),
     listConsoles: async () => { await delay(400); return consoles },
     wakeConsole: async () => { await delay(300) },
+    powerConsole: async () => { await delay(400) },
+    getCloudPrefs: async () => prefs,
+    setFavorite: async (id: string, on: boolean) => {
+      prefs = { ...prefs, favorites: on ? [...new Set([...prefs.favorites, id])] : prefs.favorites.filter(x => x !== id) }
+      return prefs
+    },
+    listFriends: async () => { await delay(600); if (params.get('friends') === 'error') throw new Error('Xbox network returned HTTP 503'); return params.get('friends') === 'none' ? [] : friends },
+    listGameProgress: async () => { await delay(600); return progress },
+    gameProgress: async (id: string) => { await delay(400); return progress.find(p => p.titleId === id) ?? null },
+    titleAchievements: async (id: string) => { await delay(500); const p = progress.find(x => x.titleId === id); return { titleId: id, name: p?.name, achievements: achievementList(Math.round((p?.percent ?? 30) / 100 * 24)) } },
     listCloudTitles: async (refresh?: boolean) => { await delay(refresh ? 1200 : 300); return { titles, cachedAt: Date.now() - (refresh ? 0 : 3 * 3600_000) } },
     cloudTitleDetails: async (productId: string) => {
       await delay(500)

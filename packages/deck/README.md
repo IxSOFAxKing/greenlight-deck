@@ -39,14 +39,18 @@ Version 0.2.0 and later update themselves. Go to **Settings → Check for update
 | | LB / RB | Switch tabs |
 | | View (on Home) | Switch profile |
 | | X (on a console) | Wake it up |
+| | Menu (on a console) | Power: wake, restart, turn off |
 | | X (in Cloud) | Search |
+| | Menu (in Cloud) / Y (on a game's page) | Add to or remove from favorites |
 | | Y | Refresh |
 | | Left / right (on a setting) | Change its value |
 | In game | Hold **L3 + R3** | Open the stream menu (input to the Xbox pauses) |
 | | **View + Menu** together | Xbox (Guide) button |
 | Keyboard | Arrows, Enter, Esc, Q/E, F11 | Same as above; Esc/F1 opens the menu in-game, F11 toggles fullscreen |
 
-The stream menu has Resume, Press Xbox button, Picture (fit/fill), Performance stats, and Disconnect.
+The stream menu has Resume, Press Xbox button, Microphone, Picture (fit/fill), Performance stats, and Disconnect.
+
+Tabs: **My Xbox** (your consoles), **Cloud** (Game Pass cloud games, with favorites, recently played, search, and Filter & sort by genre, features like multiplayer or touch controls, and order), **Friends** (who's online and what they're playing), **Achievements** (your progress per game; press A for the full list), and **Settings**.
 
 ## Develop
 
