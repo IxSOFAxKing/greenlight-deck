@@ -10,6 +10,7 @@ files:
   - dist/**/*
   - dist-electron/*.cjs
   - resources/icon.png
+  - resources/steam/*.png
   - "!**/*.map"
 npmRebuild: false
 asar: true

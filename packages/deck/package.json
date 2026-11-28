@@ -3,7 +3,7 @@
   "name": "greenlight-deck",
   "productName": "Greenlight Deck",
   "description": "Controller-first handheld frontend for Greenlight Xbox remote play and xCloud",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "license": "MIT",
   "author": "Greenlight Deck contributors",
   "main": "dist-electron/main.cjs",
@@ -17,6 +17,7 @@
     "dist": "yarn build && electron-builder --linux AppImage --publish never",
     "preview:ui": "vite --port 5199",
     "test:ui": "electron --no-sandbox scripts/smoke-test.cjs dist",
+    "test:steam-art": "esbuild scripts/steam-art-test.ts --bundle --platform=node --format=esm --log-level=error --outfile=.cache/steam-art-test.mjs && node .cache/steam-art-test.mjs",
     "test:gamepad": "esbuild scripts/gamepad-test.ts --bundle --platform=node --format=esm --log-level=error --outfile=.cache/gamepad-test.mjs && node .cache/gamepad-test.mjs"
   },
   "dependencies": {},

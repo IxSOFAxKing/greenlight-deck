@@ -58,6 +58,8 @@ Next: add it to Steam so it shows up in Gaming Mode
   2. Games  →  Add a Non-Steam Game to My Library…
   3. Tick "Greenlight Deck" and click Add Selected Programs
   4. Switch back to Gaming Mode. It's in Library → Non-Steam.
+  5. Open it once to add its library artwork (restart Steam if it
+     doesn't appear right away).
 
 Tip: in the game's controller settings, pick the "Gamepad" layout so
 every button goes to your Xbox. Hold L3 + R3 in-game for the menu.

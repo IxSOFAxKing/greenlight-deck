@@ -19,6 +19,7 @@ A controller-first, handheld-friendly frontend for streaming your Xbox (and Xbox
    ```
 3. In Steam (Desktop Mode): **Games → Add a Non-Steam Game to My Library → Greenlight Deck**.
 4. Go back to **Gaming Mode**. You'll find it under **Library → Non-Steam**.
+5. Open it once and it gives itself library artwork (cover, banner, header and logo). Restart Steam if the art doesn't appear right away. Any art you set yourself is left alone.
 
 Recommended: open the shortcut's **Controller settings** and pick a **Gamepad** layout (not Keyboard/Mouse).
 

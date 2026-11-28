@@ -48,6 +48,9 @@ jobs:
       - name: Controller input tests
         run: yarn deck test:gamepad
 
+      - name: Steam artwork tests
+        run: yarn deck test:steam-art
+
       - name: UI smoke test
         working-directory: packages/deck
         run: |

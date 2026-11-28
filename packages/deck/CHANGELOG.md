@@ -2,6 +2,11 @@
 
 Each `## <version>` section becomes the release notes shown in the app's updater.
 
+## 0.4.5
+- Greenlight Deck now has its own artwork in your Steam library: cover, wide banner, header background and logo
+- It's added automatically the first time you open the app after adding it to Steam. If it doesn't show straight away, restart Steam (or the Deck)
+- Art you've set yourself is never replaced
+
 ## 0.4.4
 - Fixed: the stream going black after being idle. When your Xbox ends the session (usually after a while with no input), the app now says so and offers Reconnect, instead of leaving a black screen
 - Fixed: messages from your Xbox (like inactivity warnings) froze the app behind an invisible pop-up. They now appear as a controller-friendly dialog over the stream

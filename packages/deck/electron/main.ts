@@ -5,6 +5,7 @@ import { Backend } from './backend'
 import { Store } from './store'
 import { Updater } from './updater'
 import { logger } from './logger'
+import { applySteamArt } from './steam-art'
 import type { DeckApiMethod } from '../shared/api'
 
 const args = process.argv.slice(1)
@@ -176,6 +177,17 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Give our Steam shortcut its library artwork (only fills in missing images).
+  setTimeout(() => {
+    try {
+      const r = applySteamArt(path.join(app.getAppPath(), 'resources', 'steam'))
+      if (r.written.length) logger.add('info', 'main', `Steam artwork added for ${r.found} shortcut(s): ${r.written.map((f) => path.basename(f)).join(', ')}`)
+      else logger.add('debug', 'main', r.found ? 'Steam artwork already set' : 'No Steam shortcut found for artwork')
+    } catch (err) {
+      logger.add('warn', 'main', `Steam artwork: ${err instanceof Error ? err.message : err}`)
+    }
+  }, 3000)
 
   // Warm the cloud library cache in the background so the Cloud tab opens instantly.
   setTimeout(() => backend.prefetchCloud(), 5000)
